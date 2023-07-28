@@ -10,6 +10,29 @@
 #include "common.h"
 #include "Vpdp1panel.h"
 
+// hooked up to a PDP-1-style pty
+// see mkptytyp
+struct Typewriter
+{
+	int in, out;
+	int dly;        // hack
+};
+void
+puttyp(Typewriter *t, int c)
+{
+	char cc;
+	cc = c & 077;
+	write(t->out, &cc, 1);
+}
+int
+gettyp(Typewriter *t)
+{
+	char c;
+	read(t->in, &c, 1);
+	return c;
+}
+
+
 void
 readmem(FILE *f, Vpdp1panel *dev)
 {
@@ -27,7 +50,7 @@ readmem(FILE *f, Vpdp1panel *dev)
 				if(*s == ':') {
 					a = w;
 					s++;
-				} else if(a < 0200000) {
+				} else if(a < 010000) {
 					dev->pdp1panel__DOT__pdp1__DOT__memory[a++] = w & 0777777;
 				}
 			}else
@@ -57,9 +80,21 @@ int
 main(int argc, char *argv[])
 {
 	Panel panel;
+	Typewriter ty;
 	pthread_t th;
+	const char *disphost;
+	int port;
+	FILE *ptr;
 
+	disphost = "localhost";
+	port = 3400;
 	ARGBEGIN {
+	case 'd':
+		disphost = EARGF(usage());
+		break;
+	case 'p':
+		port = atoi(EARGF(usage()));
+		break;
 	default:
 		usage();
 	} ARGEND;
@@ -69,12 +104,30 @@ main(int argc, char *argv[])
 	memset(&panel, 0, sizeof(panel));
 
 
+	memset(&ty, 0, sizeof(ty));
+	ty.in = open("/tmp/ty", O_RDWR);
+	if(ty.in < 0)
+		printf("can't open /tmp/ty\n");
+	ty.out = ty.in;
+
+	int disp = dial(disphost, port);
+	if(disp < 0)
+		printf("can't open display\n");
+	nodelay(disp);
+
+
+	int rdly = 10;
+	ptr = fopen("tape.bin", "rb");
+
 
 	Vpdp1panel *dev = new Vpdp1panel;
 
-	readmemf("out.mem", dev);
+//	readmemf("out.mem", dev);
 
 	pthread_create(&th, NULL, panelthread, &panel);
+
+	int disbuf[64];
+	int ndis = 0;
 
 	dev->clk = 0;
 	dev->reset = 1;
@@ -88,7 +141,10 @@ main(int argc, char *argv[])
 	dev->pdp1panel__DOT__ma = rand() & 07777;
 	dev->pdp1panel__DOT__pc = rand() & 07777;
 	dev->pdp1panel__DOT__ir = rand() & 077;
+	dev->key = 0;
 
+	static struct timespec start, now, diff;
+	clock_gettime(CLOCK_REALTIME, &start);
 	for(;;) {
 		dev->clk ^= 1;
 		dev->sw0 = panel.sw0;
@@ -111,6 +167,80 @@ main(int argc, char *argv[])
 			panel.lights2 = 0;
 		}
 		dev->eval();
+
+
+		if(dev->clk) {
+			/* typewriter read */
+			if(ty.dly == 0) {
+				if(dev->key)
+					dev->key = 0;
+				else if(hasinput(ty.in)) {
+					int c = gettyp(&ty);
+					dev->key = c | 0100;
+				}
+				ty.dly = 10000;
+			} else
+				ty.dly--;
+			/* typewriter print */
+			if(dev->typeout)
+				puttyp(&ty, dev->tb);
+
+			/* punch */
+			if(dev->punch)
+				printf("punch %o\n", dev->pb);
+
+			/* read */
+			dev->hole &= 0377;
+			if(dev->rcl) {
+				if(rdly == 0) {
+					int c;
+					c = getc(ptr);
+					if(c < 0)
+						rdly = 1000;
+					else {
+						dev->hole = 0400 | c&0377;
+//printf("reader %o\n", dev->hole);
+						rdly = 10;
+					}
+				} else
+					rdly--;
+			} else
+				rdly = 10;
+
+			/* display */
+			if(dev->dpy_intensify)
+			if(disp >= 0) {
+				int x = dev->dbx;
+				int y = dev->dby;
+				if(x & 01000) x++;
+				if(y & 01000) y++;
+				x = ((x+01000)&01777);
+				y = ((y+01000)&01777);
+				int cmd = x | (y<<10) | (7<<20);
+
+				// batch up a few points for the display
+				disbuf[ndis++] = cmd;
+				if(ndis == nelem(disbuf)) {
+					write(disp, disbuf, sizeof(disbuf));
+					ndis = 0;
+				}
+			}
+
+if(dev->ncycle == 10000) {
+	clock_gettime(CLOCK_REALTIME, &now);
+	diff.tv_sec = now.tv_sec - start.tv_sec;
+	diff.tv_nsec = now.tv_nsec - start.tv_nsec;
+	if(diff.tv_nsec < 0){
+		diff.tv_nsec += 1000000000;
+		diff.tv_sec -= 1;
+	}
+	float cyctime = (double)diff.tv_nsec / dev->ncycle;
+printf("%f\n", cyctime);
+	start = now;
+	dev->ncycle = 0;
+}
+
+		}
 	}
 
 	delete dev;

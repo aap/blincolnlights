@@ -144,6 +144,22 @@ module dly2us(input clk, input reset, input in, output p);
 endmodule
 
 
+module dly10us(input clk, input reset, input in, output p);
+	reg [9-1:0] r;
+	always @(posedge clk or posedge reset) begin
+		if(reset)
+			r <= 0;
+		else begin
+			if(r != 0)
+				r <= r + 9'b1;
+			if(in)
+				r <= 1;
+		end
+	end
+	assign p = r == 500;
+endmodule
+
+
 module dly100us(input clk, input reset, input in, output p);
 	reg [13-1:0] r;
 	always @(posedge clk or posedge reset) begin

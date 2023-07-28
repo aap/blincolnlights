@@ -3,15 +3,31 @@
 /* verilator lint_off UNUSED */
 
 module pdp1panel(
-	input wire clk,
-	input wire reset,
+	input clk,
+	input reset,
 
-	input wire [0:17] sw0,
-	input wire [0:17] sw1,
+	input [0:17] sw0,
+	input [0:17] sw1,
 	output reg [0:17] light0,
 	output reg [0:17] light1,
 	output wire [0:17] light2,
-	output wire sw_power
+	output wire sw_power,
+
+	output reg [0:9] dbx,
+	output reg [0:9] dby,
+	output wire dpy_intensify,
+
+	input [6:0] key,
+	output reg [12:17] tb,
+	output wire typeout,
+
+	input [9:1] hole,
+	output reg rcl,
+
+	output wire punch,
+	output reg [10:17] pb,
+
+	output wire [31:0] ncycle
 );
 	wire start_sw = sw1[0];
 	wire sbm_start_sw = 0;
@@ -60,6 +76,8 @@ module pdp1panel(
 	reg w;
 	reg i;
 
+	wire power_clear;
+	wire sc;
 	pdp1 pdp1(
 		.clk(clk),
 		.reset(reset),
@@ -101,9 +119,42 @@ module pdp1panel(
 		.r(r),
 		.rs(rs),
 		.w(w),
-		.i(i)
+		.i(i),
+
+		.power_clear(power_clear),
+		.sc(sc),
+
+		.dpy(dpy),
+		.clr_db(clr_db),
+		.dpy_done(dpy_done),
+
+		.tyo(tyo),
+		.clr_tb(clr_tb),
+		.tyo_done(tyo_done),
+		.tyi(tyi),
+		.type_sync(type_sync),
+		.tb(tb),
+
+		.rpa(rpa),
+		.rpb(rpb),
+		.rim_or_rcp(rim_or_rcp),
+		.reader_return(reader_return),
+		.clr_io_reader(clr_io_reader),
+		.rb(rb),
+
+		.ppa(ppa),
+		.ppb(ppb),
+		.clr_pb_on_ppa(clr_pb_on_ppa),
+		.clr_pb_ppb(clr_pb_ppb),
+		.punch_done(punch_done),
+
+		.ncycle(ncycle)
 	);
-	wire [0:17] flags = 0;
+	wire [0:17] flags;
+//	assign flags[0:11] = 0;
+	assign flags[0:5] = 0;
+	assign flags[6:11] = tb;
+	assign flags[12:17] = pf;
 
 	reg [3:0] bits;
 	always @(*) begin
@@ -148,4 +199,148 @@ module pdp1panel(
 		if(load1) ta <= sw0[6:17];
 		if(load2) tw <= sw0;
 	end
+
+
+	/* Display */
+	wire dpy;
+	wire clr_db;
+	wire dpy_done;
+	always @(posedge clk) begin
+		if(clr_db) begin
+			dbx <= 0;
+			dby <= 0;
+		end
+		if(dpy) begin
+			dbx <= dbx | ac[0:9];
+			dby <= dby | io[0:9];
+		end
+	end
+	reg [0:2] dpyphase = 0;
+	always @(posedge clk) begin
+		dpyphase <= { 1'b0, dpyphase[0:1] };
+		if(dpy) dpyphase <= 3'b100;
+	end
+	assign dpy_intensify = dpyphase[1];
+	assign dpy_done = dpyphase[2];
+
+
+
+	/* Typewriter */
+	wire color = tb[12:16] == 5'b01110;
+	wire shift = tb == 6'o74 | tb == 6'o72;
+	wire cr = tb == 6'o77;
+	wire tyo;
+	wire clr_tb;
+	wire tyo_done = type_return_done & tyo_ff & ~cr & ~shift | tyo_d2 | tyo_d4;
+	wire tyi;
+	wire type_return;
+	wire strobe_type = tyiphase[1];
+	wire type_return_done = tyiphase[3];
+	wire type_sync = type_return_done & ~tyo_ff;
+	reg tbs;
+	reg tbb;
+	reg tyo_ff;
+	reg [12:17] tb;
+	reg tyo_d1;
+	wire tyo_d2 = tyophase[6];
+	wire tyo_d4 = tyiphase[4] & tyo_ff & cr;
+	reg [0:6] tyophase = 0;
+	reg [0:6] tyiphase = 0;
+	assign typeout = tyo_d1 & ~color;
+	edgedet tye0(clk, reset, key[6] | typeout, type_return);
+	always @(posedge clk) begin
+		tyo_d1 <= tyo;
+		tyophase <= { tyo_d1 & (color | shift), tyophase[0:5] };
+		tyiphase <= { type_return, tyiphase[0:5] };
+
+		if(power_clear) begin
+			tbs <= 0;
+			tbb <= 0;
+			tyo_ff <= 0;
+		end
+		if(sc | tyo_done) tyo_ff <= 0;
+		if(clr_tb & ~tyo_ff | type_return) tb <= 0;
+		if(tyo & ~tyo_ff) begin
+			tyo_ff <= 1;
+			tb <= tb | io[12:17];
+		end
+		if(tyo_d1) begin
+			if(color & tb[17]) tbb <= 1;
+			if(color & ~tb[17]) tbb <= 0;
+		end
+		if(strobe_type) tb <= tb | key[5:0];
+	end
+
+
+	/* Reader */
+	wire rpa;
+	wire rpb;
+	wire rim_or_rcp;
+	wire reader_return = inc_rc & (rc == 2'b11);
+	wire clear_rb = rpa | rpb;
+	reg [2:1] rc;
+	reg rby;
+	reg [0:17] rb;
+	wire feed_hole;
+	wire strobe_petr = feed_hole & (rc != 0) & (~rby | hole[8]);
+	reg strobe_petr_dly;
+	wire inc_rc = strobe_petr_dly;
+	wire shift_rb = strobe_petr_dly & (rc != 2'b11);
+	wire clr_io_reader = strobe_petr_dly & rim_or_rcp;
+	edgedet re1(clk, reset, hole[9], feed_hole);
+	always @(posedge clk) begin
+		strobe_petr_dly <= strobe_petr;
+		if(power_clear) begin
+			rc <= 0;
+			rby <= 0;
+			rcl <= 0;
+		end
+		if(rpa) begin
+			rc <= 2'b11;
+			rby <= 0;
+			rcl <= ~rcl;
+		end
+		if(rpb) begin
+			rc <= 2'b01;
+			rby <= 1;
+			rcl <= 1;
+		end
+		if(inc_rc)
+			rc <= rc + 1;
+		if(clear_rb)
+			rb <= 0;
+		if(strobe_petr) begin
+			rb[12:17] <= rb[12:17] | hole[6:1];
+			if(~rby)
+				rb[10:11] <= rb[10:11] | hole[8:7];
+			rcl <= 0;
+		end
+		if(shift_rb) begin
+			rb <= { rb[6:17], 6'b0 };
+			rcl <= 1;
+		end
+	end
+
+
+	/* Punch */
+	wire ppa;
+	wire ppb;
+	wire clr_pb_on_ppa;
+	wire clr_pb_ppb;
+	wire punch_done = punchphase[5];
+	assign punch = punchphase[4];
+	reg [0:5] punchphase = 0;
+	wire punon = punchphase != 0;
+	always @(posedge clk) begin
+		punchphase <= { 1'b0, punchphase[0:4] };
+		if(clr_pb_on_ppa | clr_pb_ppb) begin
+			pb <= 0;
+			punchphase <= 6'b100000;
+		end
+		if(ppa)
+			pb <= pb | io[10:17];
+		if(ppb)
+			pb <= pb | { 2'b10, io[0:5] };
+	end
+
 endmodule
