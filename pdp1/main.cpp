@@ -119,7 +119,7 @@ main(int argc, char *argv[])
 
 
 	int rdly = 10;
-	ptr = fopen("paper_tapes/ddt.rim", "rb");
+	ptr = fopen("tapes/ddt.rim", "rb");
 //	ptr = fopen("paper_tapes/minskytron.rim", "rb");
 //	ptr = fopen("paper_tapes/snowflake.rim", "rb");
 //	ptr = fopen("maindec/maindec1.rim", "rb");
