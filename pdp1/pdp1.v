@@ -21,10 +21,12 @@ module pdp1(
 	input power_sw,
 	input single_cyc_sw,
 	input single_inst_sw,
+input spare1_sw,
+input spare2_sw,
 
 	input [6:17] ta,
 	input [0:17] tw,
-	input [6:1] ss,
+	input [1:6] ss,
 
 	output [0:4] ir,
 	output [6:17] pc,
@@ -32,7 +34,7 @@ module pdp1(
 	output [0:17] mb,
 	output [0:17] ac,
 	output [0:17] io,
-	output [6:1] pf,
+	output [1:6] pf,
 
 	output run,
 	output cyc,
@@ -71,6 +73,8 @@ module pdp1(
 	output wire tyi,
 	input type_sync,
 	input [12:17] tb,
+	input tyo_ff,
+	input tbs,
 
 	/* Reader */
 	output wire rpa,
@@ -210,7 +214,7 @@ module pdp1(
 	end
 
 	reg cyc;
-	wire CY1 = cyc & ~hsc & ~df1 & ~BC1_BC2_BC3;	// TODO? confusing drawings
+	wire CY1 = cyc & ~hsc & ~df1 & ~BC1_BC2_BC3;	// BUG: negation missing in schematics
 	always @(posedge clk) begin
 		if(sp1 & any_start_sw |
 		   sp4 & JMP_rim |
@@ -226,7 +230,8 @@ module pdp1(
 	always @(posedge clk) begin
 		if(sc | tp10 & DF_ndf2 | pc_dec)
 			df1 <= 0;
-		if(tp6 & ~cyc & mb[5] & ~(SH_RO | SKP | LAW | OPR | IOT) |
+		// BUG: JDA missing in schematics
+		if(tp6 & ~cyc & mb[5] & ~(SH_RO | SKP | LAW | OPR | IOT | JDA) |
 		   tp10 & BC3)		// TODO: eh?
 			df1 <= 1;
 
@@ -298,6 +303,8 @@ module pdp1(
 	always @(posedge clk) begin
 		if(ir_clr) ir <= 0;
 		if(ir_mb_1) ir <= ir | mb[0:4];
+if((pc-1) != 'o06023 && (pc-1) != 'o06024)
+if(spare1_sw & ir_mb_1 & ~rim) $display("fetch %o: %o", pc-1, mb);
 		if(sp2) begin
 			if(examine_sw | deposit_sw) ir[1] <= 1;
 			if(deposit_sw) ir[3] <= 1;
@@ -387,7 +394,7 @@ wire DIS = DIS_DIV;
 
 	/* Program flags */
 
-	reg [6:1] pf;
+	reg [1:6] pf;
 	wire [0:7] mbda;
 	wire [0:7] mbdb;
 	wire [0:7] mbdc;
@@ -505,7 +512,7 @@ if(tp4) mb <= mb | mbm;
 	wire ac_neg_zero = ac == 'o777777;
 	wire ac_neg_one = ac == 'o777776;
 	reg ov1, ov2;
-	wire set_ov2 = (ADD | SUB) & CY1 & (mb[0] != ac[0]);
+	wire set_ov2 = (ADD | SUB) & CY1 & (mb[0] == ac[0]);
 	always @(posedge clk) begin
 		cry_wrap <= 0;
 		if(ac_clr) ac <= 0;
@@ -555,7 +562,14 @@ if(tp4) mb <= mb | mbm;
 		{18{rb_to_io}} & rb |
 		{18{cks}} & status;
 	wire [0:17] status;
-	assign status[0:17] = 0;		// TODO
+	assign status[0] = 0;		// TODO: lp
+	assign status[1] = rbs;
+	assign status[2] = ~tyo_ff;
+	assign status[3] = tbs;
+	assign status[4] = 0;		// TODO: ~pun
+	assign status[5] = 0;
+	assign status[6] = sbm;
+	assign status[7:17] = 0;
 	reg [0:17] io;
 	always @(posedge clk) begin
 		if(io_clr) io <= 0;

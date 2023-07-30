@@ -18,6 +18,7 @@ module pdp1panel(
 	output wire dpy_intensify,
 
 	input [6:0] key,
+	output tbb,
 	output reg [12:17] tb,
 	output wire typeout,
 
@@ -36,6 +37,7 @@ module pdp1panel(
 	wire examine_sw = sw1[3];
 	wire deposit_sw = sw1[4];
 	wire read_in_sw = sw1[5];
+	wire mod_sw = sw1[7];
 
 	wire power_sw = sw1[12];
 	assign sw_power = power_sw;
@@ -44,7 +46,7 @@ module pdp1panel(
 
 	reg [6:17] ta;
 	reg [0:17] tw;
-	reg [6:1] ss = 0;
+	reg [1:6] ss;
 
 	wire [0:4] ir;
 	wire [6:17] pc;
@@ -52,7 +54,7 @@ module pdp1panel(
 	wire [0:17] mb;
 	wire [0:17] ac;
 	wire [0:17] io;
-	wire [6:1] pf;
+	wire [1:6] pf;
 
 	reg run;
 	reg cyc;
@@ -91,6 +93,9 @@ module pdp1panel(
 		.power_sw(power_sw),
 		.single_cyc_sw(single_cyc_sw),
 		.single_inst_sw(single_inst_sw),
+.spare1_sw(sw1[16]),
+.spare2_sw(sw1[17]),
+
 		.ta(ta),
 		.tw(tw),
 		.ss(ss),
@@ -134,6 +139,8 @@ module pdp1panel(
 		.tyi(tyi),
 		.type_sync(type_sync),
 		.tb(tb),
+		.tyo_ff(tyo_ff),
+		.tbs(tbs),
 
 		.rpa(rpa),
 		.rpb(rpb),
@@ -151,10 +158,9 @@ module pdp1panel(
 		.ncycle(ncycle)
 	);
 	wire [0:17] flags;
-//	assign flags[0:11] = 0;
 	assign flags[0:5] = 0;
-	assign flags[6:11] = tb;
-	assign flags[12:17] = pf;
+	assign flags[6:11] = pf;
+	assign flags[12:17] = ss;
 
 	reg [3:0] bits;
 	always @(*) begin
@@ -196,7 +202,8 @@ module pdp1panel(
 	always @(posedge clk) begin
 		if(cyc1) sel1 <= sel1 + 1;
 		if(cyc2) sel2 <= sel2 + 1;
-		if(load1) ta <= sw0[6:17];
+		if(load1 & ~mod_sw) ta <= sw0[6:17];
+		if(load1 & mod_sw) ss <= sw0[12:17];
 		if(load2) tw <= sw0;
 	end
 
@@ -233,7 +240,7 @@ module pdp1panel(
 	wire clr_tb;
 	wire tyo_done = type_return_done & tyo_ff & ~cr & ~shift | tyo_d2 | tyo_d4;
 	wire tyi;
-	wire type_return;
+	wire type_return = type_returnA | type_returnB;
 	wire strobe_type = tyiphase[1];
 	wire type_return_done = tyiphase[3];
 	wire type_sync = type_return_done & ~tyo_ff;
@@ -247,7 +254,9 @@ module pdp1panel(
 	reg [0:6] tyophase = 0;
 	reg [0:6] tyiphase = 0;
 	assign typeout = tyo_d1 & ~color;
-	edgedet tye0(clk, reset, key[6] | typeout, type_return);
+	wire type_returnA, type_returnB;
+	edgedet tye0(clk, reset, key[6], type_returnA);
+	edgedet tye1(clk, reset, typeout, type_returnB);
 	always @(posedge clk) begin
 		tyo_d1 <= tyo;
 		tyophase <= { tyo_d1 & (color | shift), tyophase[0:5] };
@@ -269,6 +278,8 @@ module pdp1panel(
 			if(color & ~tb[17]) tbb <= 0;
 		end
 		if(strobe_type) tb <= tb | key[5:0];
+		if(type_return_done & ~tyo_ff)
+			tbs <= 1;
 	end
 
 

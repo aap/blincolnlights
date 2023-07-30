@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <pigpio.h>
 #include <verilated.h>
+#include <termios.h>
+
 
 #include "args.h"
 #include "common.h"
@@ -21,7 +23,7 @@ void
 puttyp(Typewriter *t, int c)
 {
 	char cc;
-	cc = c & 077;
+	cc = c & 0177;
 	write(t->out, &cc, 1);
 }
 int
@@ -117,7 +119,12 @@ main(int argc, char *argv[])
 
 
 	int rdly = 10;
-	ptr = fopen("tape.bin", "rb");
+	ptr = fopen("paper_tapes/ddt.rim", "rb");
+//	ptr = fopen("paper_tapes/minskytron.rim", "rb");
+//	ptr = fopen("paper_tapes/snowflake.rim", "rb");
+//	ptr = fopen("maindec/maindec1.rim", "rb");
+//	ptr = fopen("maindec/maindec1_20.rim", "rb");
+//	ptr = fopen("tapes/test1.rim", "rb");
 
 
 	Vpdp1panel *dev = new Vpdp1panel;
@@ -142,6 +149,9 @@ main(int argc, char *argv[])
 	dev->pdp1panel__DOT__pc = rand() & 07777;
 	dev->pdp1panel__DOT__ir = rand() & 077;
 	dev->key = 0;
+
+int cmddly = 0;
+int cmd = -1; //open("/dev/rfcomm0", O_RDWR);
 
 	static struct timespec start, now, diff;
 	clock_gettime(CLOCK_REALTIME, &start);
@@ -168,8 +178,41 @@ main(int argc, char *argv[])
 		}
 		dev->eval();
 
-
 		if(dev->clk) {
+			if(cmddly == 0) {
+				if(hasinput(cmd)) {
+					char line[1024], *p;
+					int i, n;
+					n = read(cmd, line, sizeof(line));
+					if(n <= 0) {
+						close(cmd);
+						cmd = -1;
+						printf("disconnect\n");
+					}
+					if(n > 0 && n < sizeof(line)) {
+						line[n] = '\0';
+						if(p = strchr(line, '\r'), p) *p = '\0';
+						if(p = strchr(line, '\n'), p) *p = '\0';
+
+						printf("cmd: <%s>\n", line);
+						write(cmd, "received\n", 9);
+					}
+				}
+				if(cmd == -1) {
+					cmd = open("/dev/rfcomm0", O_RDWR);
+					if(cmd >= 0) {
+						struct termios tio;
+						tcgetattr(cmd, &tio);
+						cfmakeraw(&tio);
+						tcsetattr(cmd, TCSAFLUSH, &tio);
+
+						printf("connect!\n");
+					}
+				}
+				cmddly = 10000;
+			}
+			cmddly--;
+
 			/* typewriter read */
 			if(ty.dly == 0) {
 				if(dev->key)
@@ -181,13 +224,10 @@ main(int argc, char *argv[])
 				ty.dly = 10000;
 			} else
 				ty.dly--;
+
 			/* typewriter print */
 			if(dev->typeout)
-				puttyp(&ty, dev->tb);
-
-			/* punch */
-			if(dev->punch)
-				printf("punch %o\n", dev->pb);
+				puttyp(&ty, (!dev->tbb<<6) | dev->tb);
 
 			/* read */
 			dev->hole &= 0377;
@@ -199,13 +239,16 @@ main(int argc, char *argv[])
 						rdly = 1000;
 					else {
 						dev->hole = 0400 | c&0377;
-//printf("reader %o\n", dev->hole);
 						rdly = 10;
 					}
 				} else
 					rdly--;
 			} else
 				rdly = 10;
+
+			/* punch */
+			if(dev->punch)
+				printf("punch %o\n", dev->pb);
 
 			/* display */
 			if(dev->dpy_intensify)
@@ -235,7 +278,7 @@ if(dev->ncycle == 10000) {
 		diff.tv_sec -= 1;
 	}
 	float cyctime = (double)diff.tv_nsec / dev->ncycle;
-printf("%f\n", cyctime);
+//printf("%f\n", cyctime);
 	start = now;
 	dev->ncycle = 0;
 }
