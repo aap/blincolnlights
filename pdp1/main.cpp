@@ -227,7 +227,7 @@ int cmd = -1; //open("/dev/rfcomm0", O_RDWR);
 
 			/* typewriter print */
 			if(dev->typeout)
-				puttyp(&ty, (!dev->tbb<<6) | dev->tb);
+				puttyp(&ty, (dev->tbb<<6) | dev->tb);
 
 			/* read */
 			dev->hole &= 0377;
