@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <pthread.h>
 
 #include "args.h"
@@ -11,6 +13,7 @@
 typedef uint32_t u32, Word;
 typedef uint16_t u16, Addr;
 typedef uint8_t u8;
+#define WORDMASK 0777777
 #define ADDRMASK 07777
 #define MAXMEM (4*1024)
 #define nil NULL
@@ -56,6 +59,27 @@ struct PDP1
 
 	int ncycle;
 	int cychack;	// for cycle entry past TP0
+
+	// peripherals
+	int pcp;
+	int tcp;
+
+	// display
+	int dcp;
+	int dbx, dby;
+	// simulation
+	int dpy_fd;
+	int dpy_state;
+
+	// reader
+	int rcp;
+	int rb;
+	int rc;
+	int rby;
+	int rcl;
+	int rbs;
+	// simulation
+	int r_fd;
 };
 
 
@@ -118,6 +142,9 @@ struct PDP1
 #define B15 0000004
 #define B16 0000002
 #define B17 0000001
+
+static void iot(PDP1 *pdp, int pulse);
+static void handleio(PDP1 *pdp);
 
 static void
 sc(PDP1 *pdp)
@@ -263,15 +290,9 @@ cycle0(PDP1 *pdp)
 
 	// TP2
 	if(IR_SHRO && (MB & B10)) shro(pdp);
+int pc = PC;
 	PC = (PC+1) & ADDRMASK;
-	if(IR_IOT) {
-		if(!pdp->ioh && !pdp->ihs) {
-			pdp->ioc = 1;
-			pdp->ios = 0;
-		} else {
-			pdp->ioc = 0;
-		}
-	}
+	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
 
 	// TP3
@@ -281,6 +302,7 @@ cycle0(PDP1 *pdp)
 	case 4:
 	// TP4
 	MB |= pdp->core[MA];
+//printf("%04o: %06o (%06o)\n", pc, MB, pdp->core[MB&07777]);
 	pdp->core[MA] = 0;
 	IR = 0;
 
@@ -305,7 +327,7 @@ cycle0(PDP1 *pdp)
 	if(IR_OPR && (MB & B6)) IO = 0;
 	if(IR_IOT) {
 		if((MB & B5) && !pdp->ioh && !pdp->ihs) pdp->ioh = 1;
-// TODO: IOT pulse 7
+		if(pdp->ioc) iot(pdp, 0);
 	}
 
 	// TP8
@@ -339,7 +361,7 @@ cycle0(PDP1 *pdp)
 	if(!pdp->df1 && (IR_JMP || IR_JSP)) PC |= MB & ADDRMASK;
 	if(IR_SKIP && (MB & B8)) pdp->ov1 = 0;
 	if(IR_SHRO && (MB & B15)) shro(pdp);
-	if(IR_OPR && (MB & B8) || IR_LAW && (MB & B5)) AC ^= 0777777;
+	if(IR_OPR && (MB & B8) || IR_LAW && (MB & B5)) AC ^= WORDMASK;
 	if(IR_IOT && !pdp->ihs && pdp->ios) pdp->ioh = 0;
 	if(IR_OPR && (MB & B9) ||
 	   IR_INCORR ||
@@ -359,7 +381,7 @@ cycle0(PDP1 *pdp)
 	if(IR_IOT) {
 		if(pdp->ihs) pdp->ioh = 1;
 		else if(!pdp->ioh) pdp->ios = 0;
-// TODO: IOT pulse 10
+		if(pdp->ioc) iot(pdp, 1);
 	}
 	}
 
@@ -382,7 +404,7 @@ defer(PDP1 *pdp)
 	if(MB & B5) {
 		// TP6
 		pdp->df2 = 1;
-
+	} else {
 		// TP7
 		if(IR_JSP) AC = 0;
 
@@ -447,7 +469,7 @@ cycle1(PDP1 *pdp)
 	// TP4
 	MB |= pdp->core[MA];
 	pdp->core[MA] = 0;
-	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= 0777777;
+	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_LIO) IO = 0;
 
 	// TP5
@@ -465,7 +487,7 @@ cycle1(PDP1 *pdp)
 	if(IR_ADD || IR_SUB || IR_DIS || IR_MUS && (IO & B17)) {
 		AC += (~AC & MB)<<1;
 		if(AC & 01000000) AC++;
-		AC &= 0777777;
+		AC &= WORDMASK;
 	}
 	if(IR_IDX || IR_ISP) {
 		if(AC == 0777776) AC = 0;
@@ -494,7 +516,7 @@ cycle1(PDP1 *pdp)
 	// TP9
 	pdp->core[MA] = MB;	// approximate
 	if(IR_CALJDA) PC |= MA;
-	if(IR_SUB) AC ^= 0777777;
+	if(IR_SUB) AC ^= WORDMASK;
 	if(IR_SAD || IR_SAS) AC ^= MB;
 	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
 	if(IR_INCORR ||
@@ -566,10 +588,17 @@ emu(PDP1 *pdp, Panel *panel)
 
 		if(sw1 & SW_POWER) {
 			indicators = 0;
-			indicators |= pdp->run<<9;
-			indicators |= pdp->cyc<<8;
-			indicators |= pdp->df1<<7;
-			indicators |= pdp->rim<<6;
+			if(sw1 & KEY_SPARE) {
+				indicators |= pdp->ioc<<9;
+				indicators |= pdp->ihs<<8;
+				indicators |= pdp->ios<<7;
+				indicators |= pdp->ioh<<6;
+			} else {
+				indicators |= pdp->run<<9;
+				indicators |= pdp->cyc<<8;
+				indicators |= pdp->df1<<7;
+				indicators |= pdp->rim<<6;
+			}
 			indicators |= (0x8>>sel1) << 10;
 			indicators |= (0x8>>sel2) << 14;
 			indicators |= sw1 & 0x3F;
@@ -601,6 +630,7 @@ emu(PDP1 *pdp, Panel *panel)
 
 			if(pdp->run) {	// not really correct
 				cycle(pdp);
+				handleio(pdp);
 
 				if(pdp->ncycle == 1000000) {
 					clock_gettime(CLOCK_REALTIME, &now);
@@ -632,8 +662,125 @@ emu(PDP1 *pdp, Panel *panel)
 	}
 }
 
+static void
+iot(PDP1 *pdp, int pulse)
+{
+	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
+	int dev = MB & 03777;
+	switch(dev) {
+	case 00000:
+		break;
+
+	case 00001:	// rpa
+	case 00002:	// rpb
+		if(pulse) {
+			pdp->rcp = nac;
+			if(dev == 00001) {
+				pdp->rby = 0;
+				pdp->rc = 3;
+				pdp->rcl ^= 1;
+			} else {
+				pdp->rby = 1;
+				pdp->rc = 1;
+				pdp->rcl = 1;
+			}
+			pdp->rb = 0;
+		}
+		break;
+
+	case 00007:	// dpy
+		if(!pulse) {
+			pdp->dbx = 0;
+			pdp->dby = 0;
+		} else {
+			pdp->dcp = nac;
+			pdp->dbx |= AC>>8;
+			pdp->dby |= IO>>8;
+			pdp->dpy_state = 1;
+		}
+		break;
+
+	case 00030:	// rrb
+		if(pulse) {
+			IO |= pdp->rb;
+			pdp->rbs = 0;
+		}
+		break;
+
+	case 00033:	// cks
+		if(pulse) {
+			// TODO: LP
+			IO |= pdp->rbs<<16;
+			// TODO: ~TYO
+			// TODO: TBS
+			// TODO: ~PUN
+			// ..
+			IO |= pdp->sbm<<11;
+		}
+		break;
+
+	default:
+		printf("unknown IOT %06o\n", MB);
+		break;
+	}
+}
+
+static void
+handleio(PDP1 *pdp)
+{
+	if(pdp->rcl) {
+		if(pdp->r_fd >= 0) {
+			u8 c;
+			if(read(pdp->r_fd, &c, 1) <= 0) {
+				close(pdp->r_fd);
+				pdp->r_fd = -1;
+				return;
+			}
+			if(pdp->rc && (!pdp->rby || c&0200)) {
+				// STROBE PETR
+				pdp->rcl = 0;
+				pdp->rb |= c & (pdp->rby ? 077 : 0377);
+				// SHIFT RB
+				if(pdp->rc != 3) {
+					pdp->rb = (pdp->rb<<6) & WORDMASK;
+					pdp->rcl = 1;
+				}
+				// CLR IO
+				if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
+				// -----
+				// +1 RC
+				if(pdp->rc == 3) {
+					// READER RETURN
+					if(pdp->rcp) pdp->ios = 1;
+					else pdp->rbs = 1;
+					if(pdp->rcp || pdp->rim) {
+						IO |= pdp->rb;
+						pdp->rbs = 0;
+					}
+				}
+				pdp->rc = (pdp->rc+1) & 3;
+			}
+		}
+	}
+
+	if(pdp->dpy_state) {
+		if(pdp->dpy_fd >= 0) {
+			int x = pdp->dbx;
+			int y = pdp->dby;
+			if(x & 01000) x++;
+			if(y & 01000) y++;
+			x = ((x+01000)&01777);
+			y = ((y+01000)&01777);
+			int cmd = x | (y<<10) | (7<<20);
+			write(pdp->dpy_fd, &cmd, sizeof(cmd));
+		}
+		if(pdp->dcp) pdp->ios = 1;
+		pdp->dpy_state = 0;
+	}
+}
+
 int
-getwd(FILE *f)
+getwrd(FILE *f)
 {
 	int w, n, c;
 
@@ -661,9 +808,9 @@ readrim(PDP1 *pdp, const char *path)
 	}
 
 	for(;;) {
-		inst = getwd(f);
+		inst = getwrd(f);
 		if((inst&0760000) == 0320000) {
-			wd = getwd(f);
+			wd = getwrd(f);
 			pdp->core[inst&07777] = wd;
 		} else if((inst&0760000) == 0600000) {
 			printf("start: %04o\n", inst&07777);
@@ -678,22 +825,98 @@ readrim(PDP1 *pdp, const char *path)
 }
 
 int
+getwrd2(int fd)
+{
+	u8 c;
+	int w, n;
+
+	w = 0;
+	n = 3;
+	while(n--) {
+		do {
+			if(read(fd, &c, 1) <= 0)
+				return -1;
+		} while((c&0200) == 0);
+		w = w<<6 | (c&077);
+	}
+	return w;
+}
+
+void
+readrim2(PDP1 *pdp)
+{
+	int inst, wd;
+
+	if(pdp->r_fd < 0) {
+		fprintf(stderr, "no tape\n");
+		return;
+	}
+
+	for(;;) {
+		inst = getwrd2(pdp->r_fd);
+		if((inst&0760000) == 0320000) {
+			wd = getwrd2(pdp->r_fd);
+			pdp->core[inst&07777] = wd;
+		} else if((inst&0760000) == 0600000) {
+			printf("start: %04o\n", inst&07777);
+			return;
+		} else {
+			printf("rim botch: %06o\n", inst);
+			return;
+		}
+	}
+}
+
+char *argv0;
+void
+usage(void)
+{
+	fprintf(stderr, "usage: %s [-h host] [-p port]\n", argv0);
+	exit(1);
+}
+
+int
 main(int argc, char *argv[])
 {
 	Panel panel;
-	PDP1 pdp1;
+	PDP1 pdp1, *pdp = &pdp1;
 	pthread_t th;
+	const char *host;
+	int port;
+
+	host = "localhost";
+	port = 3400;
+	ARGBEGIN {
+	case 'h':
+		host = EARGF(usage());
+		break;
+	case 'p':
+		port = atoi(EARGF(usage()));
+		break;
+	default:
+		usage();
+	} ARGEND;
 
 	initGPIO();
 	memset(&panel, 0, sizeof(panel));
-	memset(&pdp1, 0, sizeof(pdp1));
+	memset(pdp, 0, sizeof(*pdp));
+
+	pdp->dpy_fd = dial(host, port);
+	if(pdp->dpy_fd < 0)
+		printf("can't open display\n");
+	nodelay(pdp->dpy_fd);
 
 	pthread_create(&th, NULL, panelthread, &panel);
 
-	pdp1.tw = 0777777;
-	pdp1.ss = 060;
-	readrim(&pdp1, "../pdp1/maindec/maindec1_20.rim");
+	pdp->tw = 0777777;
+	pdp->ss = 060;
+//	readrim(pdp, "../pdp1/maindec/maindec1_20.rim");
+//	readrim(pdp, "../pdp1/tapes/circle.rim");
+//	readrim(pdp, "../pdp1/paper_tapes/spacewar2B.rim");
 
-	emu(&pdp1, &panel);
+	pdp->r_fd = open("../pdp1/paper_tapes/spacewar2B.rim", O_RDONLY);
+	readrim2(pdp);
+
+	emu(pdp, &panel);
 	return 0;	// can't happen
 }

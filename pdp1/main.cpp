@@ -119,8 +119,9 @@ main(int argc, char *argv[])
 
 
 	int rdly = 10;
-	ptr = fopen("tapes/ddt.rim", "rb");
+//	ptr = fopen("tapes/ddt.rim", "rb");
 //	ptr = fopen("paper_tapes/minskytron.rim", "rb");
+	ptr = fopen("paper_tapes/spacewar2B.rim", "rb");
 //	ptr = fopen("paper_tapes/snowflake.rim", "rb");
 //	ptr = fopen("maindec/maindec1.rim", "rb");
 //	ptr = fopen("maindec/maindec1_20.rim", "rb");
@@ -239,6 +240,7 @@ int cmd = -1; //open("/dev/rfcomm0", O_RDWR);
 						rdly = 1000;
 					else {
 						dev->hole = 0400 | c&0377;
+printf("hole %o\n", c&0377);
 						rdly = 10;
 					}
 				} else
