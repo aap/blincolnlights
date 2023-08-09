@@ -10,6 +10,7 @@
 #include "args.h"
 #include "common.h"
 
+typedef uint64_t u64;
 typedef uint32_t u32, Word;
 typedef uint16_t u16, Addr;
 typedef uint8_t u8;
@@ -57,8 +58,11 @@ struct PDP1
 	int single_cyc_sw;
 	int single_inst_sw;
 
-	int ncycle;
 	int cychack;	// for cycle entry past TP0
+	int ncycle;
+	u64 prevtime, time;	// measure time
+	u64 prevcyctm, cyctm;	// cycle time
+	int debt;
 
 	// peripherals
 	int pcp;
@@ -145,6 +149,32 @@ struct PDP1
 
 static void iot(PDP1 *pdp, int pulse);
 static void handleio(PDP1 *pdp);
+
+static struct timespec starttime;
+void
+inittime(void)
+{
+	clock_gettime(CLOCK_MONOTONIC, &starttime);
+}
+u64
+gettime(void)
+{
+	struct timespec tm;
+	u64 t;
+	clock_gettime(CLOCK_MONOTONIC, &tm);
+	tm.tv_sec -= starttime.tv_sec;
+	t = tm.tv_nsec;
+	t += (u64)tm.tv_sec * 1000 * 1000 * 1000;
+	return t;
+}
+void
+nsleep(u64 ns)
+{
+	struct timespec tm;
+	tm.tv_sec = ns / (1000 * 1000 * 1000);
+	tm.tv_nsec = ns % (1000 * 1000 * 1000);
+	nanosleep(&tm, nil);
+}
 
 static void
 sc(PDP1 *pdp)
@@ -290,7 +320,6 @@ cycle0(PDP1 *pdp)
 
 	// TP2
 	if(IR_SHRO && (MB & B10)) shro(pdp);
-int pc = PC;
 	PC = (PC+1) & ADDRMASK;
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
@@ -302,7 +331,6 @@ int pc = PC;
 	case 4:
 	// TP4
 	MB |= pdp->core[MA];
-//printf("%04o: %06o (%06o)\n", pc, MB, pdp->core[MB&07777]);
 	pdp->core[MA] = 0;
 	IR = 0;
 
@@ -540,19 +568,47 @@ cycle1(PDP1 *pdp)
 void
 cycle(PDP1 *pdp)
 {
+	static int ncycle = 0;
+
 	// a cycle takes 5μs
 	if(!pdp->cyc) cycle0(pdp);
 	else if(pdp->df1) defer(pdp);
 	else cycle1(pdp);
 
-	pdp->ncycle++;
+	// This isn't quite ideal yet
+	ncycle++;
+	if(ncycle == 100) {
+		const int cyc = 4993;	// bit of slack
+		pdp->prevcyctm = pdp->cyctm;
+		do pdp->cyctm = gettime();
+		while(pdp->cyctm < pdp->prevcyctm + cyc*ncycle-pdp->debt);
+		if(pdp->cyctm-pdp->prevcyctm < cyc*ncycle)
+			pdp->debt = cyc*ncycle - (pdp->cyctm-pdp->prevcyctm);
+		else
+			pdp->debt = 0;
+		ncycle = 0;
+	}
+}
+
+void
+measuretime(PDP1 *pdp)
+{
+	static int ncycle = 0;
+	ncycle++;
+	if(ncycle == 100000) {
+		pdp->prevtime = pdp->time;
+		pdp->time = gettime();
+		float cyctime = (double)(pdp->time-pdp->prevtime) / ncycle;
+		printf("%f\n", cyctime);
+		ncycle = 0;
+	}
 }
 
 void
 emu(PDP1 *pdp, Panel *panel)
 {
 	int sw0, sw1;
-	int psw0, psw1;
+	int psw1;
 	int down;
 	int sel1, sel2;
 	int indicators;
@@ -562,11 +618,10 @@ emu(PDP1 *pdp, Panel *panel)
 	sel1 = 0;
 	sel2 = 0;
 
-	static struct timespec start, now, diff;
-	clock_gettime(CLOCK_REALTIME, &start);
-
+	inittime();
+	pdp->prevtime = pdp->time = gettime();
+	pdp->prevcyctm = pdp->cyctm = gettime();
 	for(;;) {
-		psw0 = sw0;
 		psw1 = sw1;
 		sw0 = panel->sw0;
 		sw1 = panel->sw1;
@@ -631,21 +686,7 @@ emu(PDP1 *pdp, Panel *panel)
 			if(pdp->run) {	// not really correct
 				cycle(pdp);
 				handleio(pdp);
-
-				if(pdp->ncycle == 1000000) {
-					clock_gettime(CLOCK_REALTIME, &now);
-					diff.tv_sec = now.tv_sec - start.tv_sec;
-					diff.tv_nsec = now.tv_nsec - start.tv_nsec;
-					if(diff.tv_nsec < 0){
-						diff.tv_nsec += 1000000000;
-						diff.tv_sec -= 1;
-					}
-					float cyctime = (double)diff.tv_nsec / pdp->ncycle;
-					printf("%f\n", cyctime);
-					start = now;
-					pdp->ncycle = 0;
-				}
-
+				measuretime(pdp);
 			}
 		} else {
 			IR = rand() & 077;
@@ -696,7 +737,7 @@ iot(PDP1 *pdp, int pulse)
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
-			pdp->dpy_state = 1;
+			pdp->dpy_state = 10;
 		}
 		break;
 
@@ -728,104 +769,60 @@ iot(PDP1 *pdp, int pulse)
 static void
 handleio(PDP1 *pdp)
 {
-	if(pdp->rcl) {
-		if(pdp->r_fd >= 0) {
-			u8 c;
-			if(read(pdp->r_fd, &c, 1) <= 0) {
-				close(pdp->r_fd);
-				pdp->r_fd = -1;
-				return;
+	if(pdp->rcl && pdp->r_fd >= 0) {
+		u8 c;
+		if(read(pdp->r_fd, &c, 1) <= 0) {
+			close(pdp->r_fd);
+			pdp->r_fd = -1;
+			return;
+		}
+		if(pdp->rc && (!pdp->rby || c&0200)) {
+			// STROBE PETR
+			pdp->rcl = 0;
+			pdp->rb |= c & (pdp->rby ? 077 : 0377);
+			// SHIFT RB
+			if(pdp->rc != 3) {
+				pdp->rb = (pdp->rb<<6) & WORDMASK;
+				pdp->rcl = 1;
 			}
-			if(pdp->rc && (!pdp->rby || c&0200)) {
-				// STROBE PETR
-				pdp->rcl = 0;
-				pdp->rb |= c & (pdp->rby ? 077 : 0377);
-				// SHIFT RB
-				if(pdp->rc != 3) {
-					pdp->rb = (pdp->rb<<6) & WORDMASK;
-					pdp->rcl = 1;
+			// CLR IO
+			if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
+			// -----
+			// +1 RC
+			if(pdp->rc == 3) {
+				// READER RETURN
+				if(pdp->rcp) pdp->ios = 1;
+				else pdp->rbs = 1;
+				if(pdp->rcp || pdp->rim) {
+					IO |= pdp->rb;
+					pdp->rbs = 0;
 				}
-				// CLR IO
-				if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
-				// -----
-				// +1 RC
-				if(pdp->rc == 3) {
-					// READER RETURN
-					if(pdp->rcp) pdp->ios = 1;
-					else pdp->rbs = 1;
-					if(pdp->rcp || pdp->rim) {
-						IO |= pdp->rb;
-						pdp->rbs = 0;
-					}
-				}
-				pdp->rc = (pdp->rc+1) & 3;
 			}
+			pdp->rc = (pdp->rc+1) & 3;
 		}
 	}
 
 	if(pdp->dpy_state) {
-		if(pdp->dpy_fd >= 0) {
-			int x = pdp->dbx;
-			int y = pdp->dby;
-			if(x & 01000) x++;
-			if(y & 01000) y++;
-			x = ((x+01000)&01777);
-			y = ((y+01000)&01777);
-			int cmd = x | (y<<10) | (7<<20);
-			write(pdp->dpy_fd, &cmd, sizeof(cmd));
+		pdp->dpy_state--;
+		if(pdp->dpy_state == 0) {
+			if(pdp->dpy_fd >= 0) {
+				int x = pdp->dbx;
+				int y = pdp->dby;
+				if(x & 01000) x++;
+				if(y & 01000) y++;
+				x = ((x+01000)&01777);
+				y = ((y+01000)&01777);
+//				int cmd = x | (y<<10) | (7<<20);
+				int cmd = x | (y<<10) | (4<<20);
+				write(pdp->dpy_fd, &cmd, sizeof(cmd));
+			}
+			if(pdp->dcp) pdp->ios = 1;
 		}
-		if(pdp->dcp) pdp->ios = 1;
-		pdp->dpy_state = 0;
 	}
 }
 
 int
-getwrd(FILE *f)
-{
-	int w, n, c;
-
-	w = 0;
-	n = 3;
-	while(n--) {
-		while(c = getc(f), (c&0200) == 0);
-		if(c == EOF)
-			return -1;
-		w = w<<6 | (c&077);
-	}
-	return w;
-}
-
-void
-readrim(PDP1 *pdp, const char *path)
-{
-	FILE *f;
-	int inst, wd;
-
-	f = fopen(path, "rb");
-	if(f == nil) {
-		fprintf(stderr, "can't open %s\n", path);
-		return;
-	}
-
-	for(;;) {
-		inst = getwrd(f);
-		if((inst&0760000) == 0320000) {
-			wd = getwrd(f);
-			pdp->core[inst&07777] = wd;
-		} else if((inst&0760000) == 0600000) {
-			printf("start: %04o\n", inst&07777);
-			return;
-		} else {
-			printf("rim botch: %06o\n", inst);
-			return;
-		}
-	}
-
-	fclose(f);
-}
-
-int
-getwrd2(int fd)
+getwrd(int fd)
 {
 	u8 c;
 	int w, n;
@@ -853,9 +850,9 @@ readrim2(PDP1 *pdp)
 	}
 
 	for(;;) {
-		inst = getwrd2(pdp->r_fd);
+		inst = getwrd(pdp->r_fd);
 		if((inst&0760000) == 0320000) {
-			wd = getwrd2(pdp->r_fd);
+			wd = getwrd(pdp->r_fd);
 			pdp->core[inst&07777] = wd;
 		} else if((inst&0760000) == 0600000) {
 			printf("start: %04o\n", inst&07777);
@@ -914,7 +911,7 @@ main(int argc, char *argv[])
 //	readrim(pdp, "../pdp1/tapes/circle.rim");
 //	readrim(pdp, "../pdp1/paper_tapes/spacewar2B.rim");
 
-	pdp->r_fd = open("../pdp1/paper_tapes/spacewar2B.rim", O_RDONLY);
+	pdp->r_fd = open("../pdp1/paper_tapes/spacewar2B_5.rim", O_RDONLY);
 	readrim2(pdp);
 
 	emu(pdp, &panel);
