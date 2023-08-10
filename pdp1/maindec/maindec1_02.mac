@@ -1,0 +1,64 @@
+/ maindec 1, program 2
+
+0/
+	2
+strt,	hlt
+	jmp 3000
+	hlt
+sense,	szs i 10
+	szs 10
+	hlt
+	szs i 20
+	szs 20
+	hlt
+	szs i 30
+	szs 30
+	hlt
+	szs i 40
+	szs 40
+	hlt
+	szs i 50
+	szs 50
+	hlt
+	szs i 60
+	szs 60
+	hlt
+	szs i 70
+	szs 70
+	hlt
+	jmp strt+1
+a,	szs 10
+	szs i 10
+	hlt
+	szs 20
+	szs i 20
+	hlt
+	szs 30
+	szs i 30
+	hlt
+	szs 40
+	szs i 40
+	hlt
+	szs 50
+	szs i 50
+	hlt
+	szs 60
+	szs i 60
+	hlt
+	szs 70
+	szs i 70
+	hlt
+	jmp a
+
+3000/
+	jmp 4777
+	hlt
+
+4777/
+	jmp 6000
+	hlt
+6000/
+	jmp sense
+	hlt
+
+start strt

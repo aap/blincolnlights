@@ -1,0 +1,43 @@
+                           /part 16
+/test nop, xct, and deferred addressing
+
+0/
+
+	16	/program number
+stt,	szs 10	/if sw1 up,
+	hlt	/halt after read-in
+
+/begin tests
+
+	nop	/if computer halts, nop failed
+
+	xct ins	/if this fails,
+	hlt	/computer halts
+
+t1,	dzm i t2	/beginning of indirect address chain
+t2,	dzm i t3
+t3,	dzm i t4
+t4,	dzm i t5
+t5,	dzm t6
+
+t6,	777777
+
+ins,	jmp nxt	/executed by xct
+
+nxt,	cla	/clear ac and check indirect addressing
+	lac i t1
+	sas t6
+	hlt	/error
+
+/end of part 16
+
+	szs 20	/if up
+	jmp stt 2	/program iterates
+	jmp 7772	/next test
+
+foo,
+
+start stt
+                
+                                           
+

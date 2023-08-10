@@ -1,0 +1,65 @@
+                                  /part 4
+/test xor, sas, sad
+
+0/
+
+	4	/program number
+stt,	szs 10	/if switch on,
+	hlt	/halt after read-in
+
+	clc	/ones to ac
+	xor ons	/check -0 xor -0
+	sza
+	hlt	/error
+	xor zrs	/0 xor 0
+	sza
+	hlt	/error
+	xor ons	/0 xor -0
+	cma	/should be -0
+	sza
+	hlt	/error
+	cma
+	xor zrs	/-0 xor 0
+	cma
+	sza
+	hlt	/error
+
+/start of sad and sas tests
+
+	sas zrs	/ac is 0
+	hlt	/error
+	sza
+	hlt	/error, ac was changed
+	sad ons	/ac is 0
+	hlt
+	sza	/if ac was changed
+	hlt	/error
+	cma	/now ac is 777777
+	sas zrs
+	skp i	/ok, skip halt
+	hlt	/error
+	cma
+	sza
+	hlt	/error, ac was changed
+	cma
+	sad ons	/should be same
+	skp i	/ok
+	hlt	/error
+	cma
+	sza
+	hlt	/error, ac was changed
+
+/end of tests
+
+	szs 20	/if switch 2 on,
+	jmp stt 2	/iterate
+	jmp 7772
+
+	/read in next test program
+
+ons,	777777
+zrs,	000000
+start stt
+                                             
+                                                   
+

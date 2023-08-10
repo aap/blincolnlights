@@ -1,0 +1,13 @@
+7766/
+zero,	dzm 000
+	idx zero
+	isp temp
+	jmp zero
+rimr,	rpb
+	dio temp
+	spi i
+	rpb
+temp,	770010
+	jmp rimr
+
+start zero

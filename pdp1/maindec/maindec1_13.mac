@@ -1,0 +1,61 @@
+             /part 13
+/test law, cli
+
+0/
+
+	13	/program number
+stt,	szs 10	/if sw1 up
+	hlt	/halt after read-in
+
+/begin test of law
+
+	clc	/all ones to ac
+
+	law 0
+	sza
+	hlt	/error
+
+	law 7777
+	sas ck
+	hlt	/error
+
+	law i 0	/test law with complement
+	cma
+	sza
+	hlt	/error
+
+	law i 7777
+	sas dk
+	hlt	/error
+
+/start cli test
+
+	clc
+	dac tmp
+	lio tmp	/load io with all ones
+
+	cli	/check cli with all 1s
+	dio tmp
+	lac tmp
+	sza
+	hlt	/error
+
+	cli	/check cli with all 0s
+	dio tmp
+	lac tmp
+	sza
+	hlt	/error
+
+/end of tests
+
+	szs 20
+	jmp stt 2
+	jmp 7772
+
+tmp,	0
+ck,	7777
+dk,	770000
+
+start stt
+                                         
+                                                      

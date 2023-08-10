@@ -1,0 +1,149 @@
+           /part 15
+/test jsp, jda, cal
+
+0/
+
+	15	/program number
+stt,	szs 10	/if sw1 up
+	hlt	/halt after read-in
+
+	szo	/clear overflow
+	szo i
+	jmp tt1	/first jsp test
+
+/beginning of tests
+
+16/
+
+tt1,	lac num	/initialize ac to 777757
+jp1,	jsp ck1	/go to first jsp test
+
+32/
+
+tt4,	lac num 3	/000040
+	dac ck4		/jda address
+
+	szo	/clear overflow
+	szo i
+
+	lac num 4	/771737
+jd1,	jda ck4		/first jda test
+
+/following is for cal test
+
+100/
+
+	0	/stores ac after cal
+	and msk
+	dac tmp
+	law ca1 1
+	sas tmp	/see if pc was properly saved
+	hlt	/cal error
+	lac 100	/check to see if ac saved
+	sas ons
+	hlt	/error
+
+/end of part 15
+
+	szs 20
+	jmp stt 2
+	jmp 7772	/read in next test
+
+/test numbers, constants, and temporary storage
+
+ons,	777777
+ofl,	400000
+tmp,	0
+msk,	007777
+num,	777757	776020	771677	000040
+	771737	006040	006000	771777
+
+
+
+
+
+
+/now a few macros
+
+define jpmac ckm,jpm,ttn
+ckm,	and msk
+	dac tmp
+	law jpm 1
+	sas tmp
+	hlt
+	jmp ttn
+terminate
+
+define jdmac ckm,jdn,p,ttq
+ckm,	0
+	and msk
+	dac tmp
+	law jdn 1
+	sas tmp
+	hlt
+	lac ckm
+	sas num p
+	hlt
+	jmp ttq
+terminate
+
+737/	jdmac ck4,jd1,4,tt5
+
+757/	jpmac ck1,jp1,tt2
+
+1000/	jdmac ck6,jd3,7,tt7
+
+1100/	jpmac ck3,jp3,tt4
+
+1731/
+
+tt5,	lac tt5	/turn on the
+	add tt5	/overflow flip-flop
+
+	lac num 4	/771737
+	dac ck5		/address of 2nd jda
+
+	lac num 5	/006040
+jd2,	jda ck5		/second jda test
+
+1755/
+
+tt2,	lac num 1	/776020
+jp2,	jsp ck2
+
+3000/
+
+tt7,	clc	/word of ones
+ca1,	cal	/test of cal
+
+5772/
+tt6,	szo	/clears overflow
+	szo i
+
+	lac num 6	/006000
+	dac ck6		/address of third jda
+
+	lac num 7	/771777
+jd3,	jda ck6		/third jda test
+
+
+
+
+
+6020/	jpmac ck2,jp2,tt3
+
+6040/	jdmac ck5,jd2,5,tt6
+
+6076/
+
+tt3,	lac num 2	/771677
+jp3,	jsp ck3		/third jsp test
+
+/end of program for part 15
+
+foo,
+
+start stt
+                
+                                                                           
+

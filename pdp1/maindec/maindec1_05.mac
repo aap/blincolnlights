@@ -1,0 +1,62 @@
+                             /part 5
+/test dip, dap, dac, lac
+
+0/
+
+	5	/program number
+stt,	szs 10	/if sw 1 on,
+	hlt	/halt after read-in
+
+define junk
+	dip rgs
+	dap rgs
+	sas rgs
+	hlt
+	dac tmp
+	sas tmp
+	hlt
+terminate
+
+/begin tests of dip, dap, and dac
+
+	cla	/first, test with zeroes
+	junk	/true blue
+
+	cma	/now test with all ones
+	junk	/into all 0s
+
+	junk	/all 1s into all 1s
+
+	cma	/all 0s
+	junk	/into all 1s
+
+/begin test of lac
+
+	lac zrs	/load from word of zeroes
+	sza	/if ac not 0,
+	hlt	/then error
+	lac ons	/load 1s into 0s
+	sas ons
+	hlt	/error
+	lac ons	/1s into 1s
+	sas ons
+	hlt	/error
+	lac zrs	/0s into 1s
+	sza
+	hlt	/error
+
+/end of tests, part 5
+
+	szs 20	/if sw 2 up,
+	jmp stt 2	/iterate
+	jmp 7772	/read in next test
+
+zrs,	000000
+ons,	777777
+rgs,	0
+tmp,	0
+
+start stt
+                                                                            
+                                                                  
+

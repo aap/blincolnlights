@@ -1,0 +1,64 @@
+                 /part 7
+/test isp
+
+0/
+
+	7	/program number
+stt,	szs 10	/if sw1 up,
+	hlt	/halt after read-in
+
+	lac tn1	/377777
+	dac ct1
+	dac t1
+	lac tn2	/777776
+	dac ct2
+	dac t2
+
+/start of isp test/start of isp test
+
+define idsas a,b
+	idx a
+	sas b
+	hlt
+terminate
+
+lp,	isp t2	/777776 to 0
+	hlt	/error
+	idsas ct2,t2	/check result against idx
+	sad tn1	/leave loop when ct2 is 377777
+	jmp lst	/through this exit
+	isp t1	/should never be positive
+	skp i
+	hlt	/error
+	idsas ct1,t1
+	jmp lp
+
+lst,	isp t1	/t1 should be 777776 before this
+	hlt	/error
+	sza
+	hlt	/error
+	isp t2			/377777 to 400000
+	skp i
+	hlt	/error
+	idsas ct2,t2
+
+/end of isp test
+
+	szs 20	/if sw2 up,
+	jmp stt 2
+	jmp 7772	/read in next test
+
+ct1,	0
+ct2,	0
+t1,	0
+t2,	0
+tn1,	377777	/test number 1
+tn2,	777776	/test number 2
+
+foo,
+
+start stt
+                                   
+        
+
+

@@ -1,0 +1,113 @@
+      /part 14
+/test clf, stf, szf
+
+0/
+
+	14	/program number
+stt,	szs 10	/if sw1 up,
+	hlt	/halt after read-in
+
+/begin tests
+
+	clf 7	/clear all flags
+	szf 7
+	hlt	/error
+
+	lac e	/initialize all instructions
+	dap a 1	/for flag 1
+	lac f
+	dap a 2
+	dap c 1
+	dap c 2
+
+	lac cde	/set up count loop
+	dac abc	/for stf test
+
+xa,	law a 1	/set up time delay
+a,	jmp cnt 1
+
+	stf 1	/start test with flag 1
+	szf i 1
+	hlt	/error
+
+	idx a 1	/next flag
+	idx a 2
+	isp abc
+	jmp xa
+
+	law b	/introduce another time delay
+	jmp cnt 1
+
+b,	clf 7	/clear all flags
+	szf 7
+	hlt	/error
+
+	law b 5	/another time delay
+	jmp cnt 1
+
+	stf 7	/set all flags
+	szf i 7
+	hlt	/error
+
+/clf tests
+
+	lac cde	/set up loop for 6 flags
+	dac abc
+
+xc,	law c 1	/time delay
+c,	jmp cnt 1
+
+
+
+
+
+
+
+                  	clf 1	/start test with flag 1
+	szf 1
+	hlt	/error
+
+	idx c 1	/next flag
+	idx c 2
+	isp abc
+	jmp xc
+
+/end of tests for part 14
+
+	szs 20	/if up
+	jmp stt 2	/program iterates
+	jmp 7766	/clear memory for next test
+
+/random junk
+
+cnt,	000000	/routine to introduce time delay
+	dap cnt 6
+	lac mxx
+	dac cnt
+	isp cnt
+	jmp cnt 4
+	jmp .
+
+e,	11
+f,	1
+mxx,	700000
+abc,	0
+cde,	777771
+
+/memory killer routine
+
+7765/
+
+	770013
+zro,	dzm 0
+	idx zro
+	isp 7765
+	jmp zro
+
+foo,
+
+start stt
+                        
+           
+     
+

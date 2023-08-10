@@ -1,0 +1,46 @@
+                            /part 3
+/test cla, cma, sma, spa, skp, skp i, and lat partly
+/test word should be 777777
+
+0/
+
+	3	/program number
+stt,	szs 10	/if on,
+	hlt	/halt after read-in
+
+	skp i	/test unconditional skip
+	hlt	/if fails
+	skp	/test no skip
+	jmp a	/ok
+	hlt	/failed
+
+a,	lat	/all ones to ac
+	cla	/test cla and sza jointly
+	sza
+	hlt	/failed
+
+	lat	/all ones to ac
+	cma	/test cma
+	sza
+	hlt
+	spa	/test spa
+	hlt
+	sma i	/test sma negation
+	hlt
+	cma	/now 777777
+	sza i	/test sza negation
+	hlt
+	spa i	/test spa negation
+	hlt
+	sma	/test sma true
+	hlt
+
+/end of tests
+
+	szs 20	/if switch on, reiterate
+	jmp stt 2	/by returning
+	jmp 7772	/otherwise, read in next tape
+
+start stt
+                                                       
+                       

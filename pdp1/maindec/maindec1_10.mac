@@ -1,0 +1,50 @@
+                                     /part 10
+/test and, ior
+
+0/
+
+	10	/program number
+stt,	szs 10	/if sw1 up,
+	hlt	/halt after read-in
+
+/begin tests of and and ior
+
+define amac a,b,c
+	lac a
+	and b
+	c
+	hlt
+terminate
+
+	amac t2,t2,sas t2	/1s and 1s
+	amac t1,t2,sza	/0s and 1s
+	amac t1,t1,sza	/0s and 0s
+	amac t2,t1,sza	/1s and 0s
+
+define imac a,b,c
+	lac a
+	ior b
+	c
+	hlt
+terminate
+
+	imac t1,t1,sza	/0s or 0s
+	imac t1,t2,sas t2	/0s or 1s
+	imac t2,t2,sas t2	/1s or 1s
+	imac t2,t1,sas t2	/1s or 0s
+
+/end of tests for part 10
+
+	szs 20	/if sw2 up,
+	jmp stt 2
+	jmp 7772
+
+t1,	000000
+t2,	777777
+
+foo,
+
+start stt
+                                      
+                                                     
+

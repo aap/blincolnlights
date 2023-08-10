@@ -1,0 +1,125 @@
+             /part 12
+/test add, szo, sub
+
+0/
+
+	12	/program number
+stt,	szs 10	/if up
+	hlt	/halt after read-in
+
+/begin test of szo
+
+	szo	/turn off overflow flip-flop
+	szo i	/check that szo i doesnt skip
+	szo	/should skip
+	hlt	/error
+	szo i	/should not skip
+	skp i
+	hlt	/error
+
+/start of add test
+
+	cla
+	add zro	/test add of 0s
+	sza
+	hlt	/error
+	add pmx	/377777
+	sas pmx
+	hlt
+	add zro
+	sas pmx
+	hlt	/error
+
+	cla
+	add nmx	/400000
+	sas nmx
+	hlt	/error
+	add zro
+	sas nmx
+	hlt	/error
+	szo	/should be no overflow
+	hlt	/error
+	add pmx	/-nmx
+	sza
+	hlt	/error
+
+	lac zoz	/252525
+	add zoz	/set overflow, check carry
+	sas ozo	/525252
+	hlt	/error
+	szo i	/overflow should be on
+	hlt	/error
+
+	lac ab	/125252
+	add ab	/check carry for even ac bits
+	sas ac	/252524
+	hlt	/error
+
+	lac ons
+	add zro
+	sza	/-0 should clear
+	hlt	/error
+
+
+
+                                	szo
+	hlt	/error
+	cma
+	add ad	/000001
+	sas ad
+	hlt	/error
+	szo	/should be off
+	hlt	/error
+
+	lac ozo	/525252
+	add ons	/-0
+	sas ozo
+	hlt	/error
+
+	lac zoz	/252525
+	add ons
+	sas zoz
+	hlt	/error
+
+	szo	/still should be off
+	hlt	/error
+
+/end of add test
+
+	cla	/initialize
+	dac tmp	/for sub test
+	cma
+
+/begin test of sub
+
+lp,	sub mon	/-1
+	dac qem
+	idx tmp
+	sas qem
+	hlt	/error
+
+	sas zro	/loop for 777777 times
+	jmp lp
+
+/end of sub test
+
+	szs 20	/if up,
+	jmp stt 2
+	jmp 7772	/read in next test
+
+ons,	777777
+zro,	000000
+pmx,	377777
+nmx,	400000
+zoz,	252525
+ozo,	525252
+ab,	125252
+ac,	252524
+ad,	000001
+mon,	777776
+tmp,	000000
+qem,	000000
+
+start stt
+                                                        
+                                                                  

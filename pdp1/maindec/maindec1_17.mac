@@ -1,0 +1,313 @@
+                /part 17
+/test ral, ril, rar, rir, rcl, rcr
+
+0/
+
+	17	/program number
+stt,	szs 10	/if up
+	hlt	/halt after read-in
+
+/start of ral 1s and ril 1s tests.
+
+	lac al1	/set up
+	dac lsh
+	lac il1
+	dac lsh 1
+	law tst 1
+	dap lsh 2
+
+	lio tst
+
+lpl,	dio tmp	/set ac equal to io
+	lac tmp
+
+lsh,	ral .	/rotate one.  different bit each time
+
+	ril .	/different bit each time
+
+	sas .	/test ac rotation
+	hlt	/error
+
+	dio tmp	/test io rotation
+	sas tmp
+	hlt	/ril error
+
+	lac lsh
+	and msk	/change the address in ral instruction
+	add lsh
+	sad lsl
+	jmp spr	/jmp out of loop
+	dac lsh	/otherwise, set up next ral
+
+	lac lsh 1
+	and msk	/set up next ril also
+	add lsh 1
+	dac lsh 1
+
+	idx lsh 2	/set sas instruction
+	jmp lpl		/return to loop
+
+/start of rar and rir tests
+
+spr,	lac ar1	/set up loop for right rotation
+	dac rsh
+	lac ir1
+	dac rsh 1
+	law tst 10
+	dap rsh 2
+
+	lio tst 11
+
+lpr,	dio tmp	/set ac equal to io
+	lac tmp
+
+
+
+rsh,	rar .	/one right, different bit each time
+
+	rir .	/different bit each time
+
+	sas .	/check ac rotation
+	hlt	/rar error
+
+	dio tmp	/check io rotation
+	sas tmp
+	hlt	/rir error
+
+	lac rsh	/move the addresses of rar and rir
+	and msk
+	add rsh
+	sad lsr
+	jmp nxt	/done with loop
+	dac rsh	/not done, set up next rar
+
+	lac rsh 1
+	and msk	/set up next rir
+	add rsh 1
+	dac rsh 1
+
+	lac rsh 2
+	sub one	/update sas instruction
+	dac rsh 2
+
+	jmp lpr	/return to loop
+
+/start of 9-bit rotation test
+
+nxt,	lac tst	/load ac and io
+	lio tst	/with test number
+
+	ral 9s
+	ril 9s
+
+	sas tst 11	/check correct ac rotation
+	hlt		/error
+
+	dio tmp		/check correct io rotation
+	sas tmp
+	hlt		/error
+
+	rar 9s
+	rir 9s
+
+	sas tst		/check correct ac rotation right
+	hlt		/error
+
+	dio tmp		/test io rotation
+	sas tmp
+	hlt		/error
+
+	lac tst 11
+	rcl 9s	/9-bit combined rotation
+	sas ttc	/check correct ac contents
+	hlt	/error
+
+	lac ttc 1
+	dio tmp	/check correct io contents
+	sas tmp
+	hlt	/error
+
+
+
+
+
+	lac ttc	/set up combined right 9s
+	rcr 9s
+	sas tst 11	/check correct ac contents
+	hlt
+
+	lac tst
+	dio tmp
+	sas tmp	/check correct io contents
+	hlt
+
+/start of 0 bit rotation tests
+
+	ral
+	ril
+
+	sas tst	/check no rotation
+	hlt	/error
+
+	dio tmp
+	sas tmp	/check no rotation of io
+	hlt
+
+	rar
+	rir
+
+	sas tst	/check no ac rotation
+	hlt
+
+	dio tmp
+	sas tmp	/check no io rotation
+	hlt
+
+	rcl
+
+	sas tst	/check for correct ac
+	hlt
+
+	dio tmp
+	sas tmp	/check correct io contents
+	hlt
+
+	rcr
+
+	sas tst	/check correct ac
+	hlt
+
+	dio tmp
+	sas tmp	/check correct io
+	hlt
+
+
+
+
+
+
+
+
+
+
+
+
+
+/start of rcl 9s high speed test
+
+	law flp	/set up loop
+	dap fls	/for fast rotation
+
+	lac num	/set up count
+	dac cnt	/of loops
+
+fls,	lio .	/load with test number
+
+fsl,	dio tmp	/set ac to io
+	lac tmp
+
+	repeat 4, rcl 9s
+
+	sas i fls
+	hlt	/error, ac changed
+
+	dio tmp
+	sas tmp
+	hlt	/error, io changed
+
+	isp cnt	/leave loop after executing
+	jmp fsl	/777 times
+
+	lac num	/set up count
+	dac cnt	/for high-speed rcr 9s test
+
+fsr,	dio tmp	/set ac to io
+	lac tmp
+
+	repeat 4, rcr 9s
+
+	sas i fls
+	hlt	/error, ac changed
+
+	dio tmp
+	sas tmp
+	hlt	/error, io changed
+
+	isp cnt	/leave loop after executing
+	jmp fsr	/777 times
+
+	lac num	/start of rcl 9s-rcr 9s high speed test
+	dac cnt	/set up loop count
+
+rvs,	dio tmp	/set ac to io
+	lac tmp
+
+	repeat 4, rcr 9s	rcl 9s
+
+	sas i fls	/check for correct ac
+	hlt		/error
+
+	dio tmp		/check correct io
+	sas tmp
+	hlt		/error
+
+	isp cnt	/leave loop after execution
+	jmp rvs	/777 times
+
+
+
+
+
+
+
+
+
+	idx fls	/set up next test number
+	sas fin	/if not finished
+	jmp fls	/return for another fast loop
+
+/end of part 17
+
+	szs 20	/if sw2 up
+	jmp stt 2	/program iterates
+	jmp 7772	/read in next test
+
+/constants, test numbers, and temporary storage
+
+al1,	661001
+il1,	662001
+ar1,	671001
+ir1,	672001
+tmp,	0
+flp,	000000
+	777777
+one,	000001
+	777776
+	525252
+	525254
+num,	777000
+cnt,	0
+msk,	000777
+lsl,	662000
+lsr,	672000
+fin,	lio flp 6
+tst,	777070
+	776161
+	774343
+	770707
+	761617
+	743437
+	707077
+	616177
+	434377
+	070777
+	777777
+ttc,	777777
+	070070
+
+foo,
+
+start stt
+                
+                                                 
+

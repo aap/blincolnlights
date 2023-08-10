@@ -76,7 +76,7 @@ char *argv0;
 void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-d disphost] [-p port]\n", argv0);
+	fprintf(stderr, "usage: %s [-h host] [-p port]\n", argv0);
 	exit(1);
 }
 
@@ -86,14 +86,14 @@ main(int argc, char *argv[])
 	Panel panel;
 	Flexowriter fl;
 	pthread_t th;
-	const char *disphost;
+	const char *host;
 	int port;
 
-	disphost = "localhost";
+	host = "localhost";
 	port = 3400;
 	ARGBEGIN {
-	case 'd':
-		disphost = EARGF(usage());
+	case 'h':
+		host = EARGF(usage());
 		break;
 	case 'p':
 		port = atoi(EARGF(usage()));
@@ -113,7 +113,7 @@ main(int argc, char *argv[])
 		printf("can't open /tmp/fl\n");
 	fl.out = fl.in;
 
-	int disp = dial(disphost, port);
+	int disp = dial(host, port);
 	if(disp < 0)
 		printf("can't open display\n");
 	nodelay(disp);

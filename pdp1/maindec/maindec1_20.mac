@@ -1,0 +1,117 @@
+                                                   /part 20
+/test sal, sil, sar, sir, scl, scr
+
+0/
+
+	20	/program number
+stt,	szs 10	/if sw1 up,
+	hlt	/halt after read-in
+
+/begin tests
+
+	lac tst	/load ac and io
+	lio tst	/with 377777
+
+	sal 9s	/move ac left
+	sal 8s	/17 bits
+
+	sil 9s	/same with io
+	sil 8s
+
+	sza	/ac should now be 0
+	hlt	/error
+
+	dio tmp	/same with io
+	sas tmp
+	hlt	/error
+
+/tests of sar and sir
+
+	lac tst	/377777
+	lio tst
+
+	sar 9s
+	sar 8s
+	sir 9s
+	sir 8s
+
+	sza	/ac and io should both be 0
+	hlt	/error
+
+	dio tmp
+	sas tmp
+	hlt	/error
+
+	lac tst 5	/400000
+	lio tst 5
+
+	sar 9s
+	sar 8s
+	sir 9s
+	sir 8s
+
+	cma	/ac should be all 1s
+	sza
+	hlt	/error
+
+	cma
+	dio tmp
+	sas tmp	/same with io
+	hlt	/error
+
+
+
+
+
+
+
+/begin tests of scl and scr
+
+	lac tst	/377777
+	lio tst
+
+	scl 1s	/combined shift
+
+	sas tst 1
+	hlt	/error
+
+	dio tmp	/io should be 777776
+	lac tst 2
+	sas tmp
+	hlt	/error
+
+	lac tst	/scr test now
+	lio tst
+
+	scr 1s
+
+	sas tst 3	/177777
+	hlt		/error
+
+	dio tmp
+	lac tst 4
+	sas tmp
+	hlt	/error
+
+/end of part 20
+
+	szs 20	/if up
+	jmp stt 2	/iterate
+	jmp 7772	/read in next test
+
+/random junk
+
+tst,	377777
+	377776
+	777776
+	177777
+	577777
+	400000
+tmp,	0
+
+foo,
+
+start stt
+                
+                                                    
+

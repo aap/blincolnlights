@@ -1,0 +1,52 @@
+                      /part 11
+/test lio, dio, spi
+
+0/
+
+	11	/program number
+stt,	szs 10	/if sw1 up
+	hlt	/halt after read-in
+
+/begin tests
+
+define loop
+	lio t1
+	dio t2
+	sas t2
+	hlt
+	spa
+	jmp b
+terminate
+
+	dzm t1
+	cla	/initialize
+
+a,	loop	/test until t1 is 400000
+
+	spi	/test spi instruction
+	hlt	/error
+	idx t1
+	jmp a
+
+b,	spi i	/io now negative
+	hlt	/error
+	idx t1
+
+	loop	/test until t1 is 0
+
+/end of tests for part 11
+
+	szs 20	/iterate if sw2 up
+	jmp stt 2
+	jmp 7772		/get next program
+
+/random
+
+t1,	0
+t2,	0
+
+foo,
+
+start stt
+                    
+                         

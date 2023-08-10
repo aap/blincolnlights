@@ -907,11 +907,13 @@ main(int argc, char *argv[])
 
 	pdp->tw = 0777777;
 	pdp->ss = 060;
-//	readrim(pdp, "../pdp1/maindec/maindec1_20.rim");
-//	readrim(pdp, "../pdp1/tapes/circle.rim");
-//	readrim(pdp, "../pdp1/paper_tapes/spacewar2B.rim");
 
-	pdp->r_fd = open("../pdp1/paper_tapes/spacewar2B_5.rim", O_RDONLY);
+//	const char *tape = "../pdp1/maindec/maindec1_20.rim";
+//	const char *tape = "../pdp1/tapes/circle.rim";
+//	const char *tape = "../pdp1/tapes/minskytron.rim";
+	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
+
+	pdp->r_fd = open(tape, O_RDONLY);
 	readrim2(pdp);
 
 	emu(pdp, &panel);

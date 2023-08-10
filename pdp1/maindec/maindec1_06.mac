@@ -1,0 +1,107 @@
+                 /part 6
+/test dzm, idx
+
+0/
+
+	6	/program number
+stt,	szs 10	/if sw 1 up,
+	hlt	/halt after read-in
+
+/begin test of dzm
+
+	clc	/word of 1s
+	dac tmp
+	dzm tmp	/zero test word of 1s
+	lac tmp
+	sza
+	hlt	/error
+	dzm tmp	/zero test word of 0s
+	lac tmp
+	sza
+	hlt	/error
+
+/begin test of idx
+
+	clc	/-0
+	dac tmp
+	idx tmp	/should now be 1
+	spa
+	hlt	/big error
+	sza i
+	hlt	/error
+	cma
+	dac tmp	/now should be -1
+	idx tmp
+	sza
+	hlt	/error
+
+/now some lengthy hack
+
+define ptest a
+	lac tb1 a
+	dac tmp
+	idx tmp
+	spa
+	hlt
+terminate
+
+define ntest a
+	lac tb2 a
+	dac tmp
+	idx tmp
+	sma
+	hlt
+terminate
+
+/begin idx test of special bits
+
+	ptest 0
+	ptest 1
+	ptest 2
+
+
+
+
+	ptest 3
+	ptest 4
+	ptest 5
+	ptest 6
+	ptest 7
+	ptest 10
+	ptest 11
+	ptest 12
+	ptest 13
+	ptest 14
+	ptest 15
+	ptest 16
+
+	ntest 0
+	ntest 1
+	ntest 2
+
+/end of tests
+
+	szs 20	/if sw2 up
+	jmp stt 2	/iterate
+	jmp 7772	/read in next test program
+
+/random storage and constants
+
+tmp,	0
+
+tb1,
+
+377776	377775	377773	377767	377757	377737
+377677	377577	377377	376777	375777	373777
+367777	357777	337777
+
+tb2,
+
+677777	577777	377777
+
+foo,
+
+start stt
+                                              
+                                                             
+
