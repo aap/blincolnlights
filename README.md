@@ -50,3 +50,6 @@ To get a display, take the `crt` program from
 https://github.com/aap/rx-0, start it,
 and run `tx0sim` with arguments `-h host` and `-p port`
 indicating where to connect to (default: localhost 3400)
+
+The PDP-1 (`pdp1c`) also handles a newer display emulation,
+[p7sim](https://github.com/aap/p7sim).

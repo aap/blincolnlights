@@ -74,6 +74,7 @@ struct PDP1
 	// simulation
 	int dpy_fd;
 	int dpy_state;
+	int dpy_dt;		// in microseconds
 
 	// reader
 	int rcp;
@@ -568,14 +569,17 @@ cycle1(PDP1 *pdp)
 void
 cycle(PDP1 *pdp)
 {
-	static int ncycle = 0;
-
 	// a cycle takes 5μs
 	if(!pdp->cyc) cycle0(pdp);
 	else if(pdp->df1) defer(pdp);
 	else cycle1(pdp);
+}
 
+void
+throttle(PDP1 *pdp)
+{
 	// This isn't quite ideal yet
+	static int ncycle = 0;
 	ncycle++;
 	if(ncycle == 100) {
 		const int cyc = 4993;	// bit of slack
@@ -685,9 +689,10 @@ emu(PDP1 *pdp, Panel *panel)
 
 			if(pdp->run) {	// not really correct
 				cycle(pdp);
-				handleio(pdp);
-				measuretime(pdp);
 			}
+			throttle(pdp);
+			handleio(pdp);
+			measuretime(pdp);
 		} else {
 			IR = rand() & 077;
 			PC = rand() & 07777;
@@ -812,13 +817,22 @@ handleio(PDP1 *pdp)
 				if(y & 01000) y++;
 				x = ((x+01000)&01777);
 				y = ((y+01000)&01777);
-//				int cmd = x | (y<<10) | (7<<20);
-				int cmd = x | (y<<10) | (4<<20);
+				int cmd = x | (y<<10) | (4<<20) | (pdp->dpy_dt<<23);
+				pdp->dpy_dt = 0;
 				write(pdp->dpy_fd, &cmd, sizeof(cmd));
 			}
 			if(pdp->dcp) pdp->ios = 1;
 		}
 	}
+	// keep track of simulated display time
+	if(pdp->dpy_dt+5 >= 512) {
+		if(pdp->dpy_fd >= 0) {
+			int cmd = pdp->dpy_dt<<23;
+			write(pdp->dpy_fd, &cmd, sizeof(cmd));
+		}
+		pdp->dpy_dt = 0;
+	}
+	pdp->dpy_dt += 5;
 }
 
 int
@@ -905,11 +919,13 @@ main(int argc, char *argv[])
 
 	pthread_create(&th, NULL, panelthread, &panel);
 
-	pdp->tw = 0777777;
+//	pdp->tw = 0777777;
+	pdp->tw = 0677721;	// minskytron
 	pdp->ss = 060;
 
 //	const char *tape = "../pdp1/maindec/maindec1_20.rim";
 //	const char *tape = "../pdp1/tapes/circle.rim";
+//	const char *tape = "../pdp1/tapes/munch.rim";
 //	const char *tape = "../pdp1/tapes/minskytron.rim";
 	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
 

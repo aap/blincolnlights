@@ -1,0 +1,8 @@
+foo,	lat
+	add v
+	dac v
+	rcl 9s
+	xor v
+	dpy-i /300
+	jmp foo 
+v,	0
