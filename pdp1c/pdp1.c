@@ -64,10 +64,6 @@ struct PDP1
 	u64 prevcyctm, cyctm;	// cycle time
 	int debt;
 
-	// peripherals
-	int pcp;
-	int tcp;
-
 	// display
 	int dcp;
 	int dbx, dby;
@@ -85,6 +81,24 @@ struct PDP1
 	int rbs;
 	// simulation
 	int r_fd;
+
+	// punch
+	int pcp;
+	int pb;
+	int punon;
+	// simulation
+	int p_state;
+	int p_fd;
+
+	// typewriter
+	int tcp;
+	int tb;
+	int tbs;
+	int tbb;
+	int tyo;
+	// simulation
+	int typ_state;
+	int typ_fd;
 };
 
 
@@ -178,6 +192,27 @@ nsleep(u64 ns)
 }
 
 static void
+pwrclr(PDP1 *pdp)
+{
+	IR = rand() & 077;
+	PC = rand() & 07777;
+	MA = rand() & 07777;
+	MB = rand() & 0777777;
+	AC = rand() & 0777777;
+	IO = rand() & 0777777;
+
+	pdp->rc = 0;
+	pdp->rby = 0;
+	pdp->rcl = 0;
+
+	pdp->punon = 0;
+
+	pdp->tbs = 0;
+	pdp->tbb = 0;
+	pdp->tyo = 0;
+}
+
+static void
 sc(PDP1 *pdp)
 {
 	pdp->df1 = 0;
@@ -191,6 +226,8 @@ sc(PDP1 *pdp)
 	pdp->pc = 0;
 	pdp->ioc = 1;
 	pdp->sbm = 0;
+
+	pdp->tyo = 0;
 }
 
 static void
@@ -622,6 +659,8 @@ emu(PDP1 *pdp, Panel *panel)
 	sel1 = 0;
 	sel2 = 0;
 
+	pwrclr(pdp);
+
 	inittime();
 	pdp->prevtime = pdp->time = gettime();
 	pdp->prevcyctm = pdp->cyctm = gettime();
@@ -694,12 +733,7 @@ emu(PDP1 *pdp, Panel *panel)
 			handleio(pdp);
 			measuretime(pdp);
 		} else {
-			IR = rand() & 077;
-			PC = rand() & 07777;
-			MA = rand() & 07777;
-			MB = rand() & 0777777;
-			AC = rand() & 0777777;
-			IO = rand() & 0777777;
+			pwrclr(pdp);
 
 			panel->lights0 = 0;
 			panel->lights1 = 0;
@@ -712,13 +746,14 @@ static void
 iot(PDP1 *pdp, int pulse)
 {
 	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
-	int dev = MB & 03777;
+	int dev = MB & 077;
+	if(!pulse && (dev&070)==030) IO = 0;
 	switch(dev) {
-	case 00000:
+	case 000:
 		break;
 
-	case 00001:	// rpa
-	case 00002:	// rpb
+	case 001:	// rpa
+	case 002:	// rpb
 		if(pulse) {
 			pdp->rcp = nac;
 			if(dev == 00001) {
@@ -734,7 +769,45 @@ iot(PDP1 *pdp, int pulse)
 		}
 		break;
 
-	case 00007:	// dpy
+	case 003:	// tyo
+		if(!pulse) {
+			if(!pdp->tyo)
+				pdp->tb = 0;
+		} else {
+			pdp->tcp = nac;
+			if(!pdp->tyo) {
+				pdp->tyo = 1;
+				pdp->tb |= IO & 077;
+				pdp->typ_state = 5000;
+			}
+		}
+		break;
+
+	case 004:	// tyi
+		if(!pulse) {
+			IO = 0;
+		} else {
+			pdp->tbs = 0;
+			pdp->io |= pdp->tb;
+		}
+		break;
+
+	case 005:	// ppa
+	case 006:	// ppb
+		if(!pulse) {
+			pdp->pb = 0;
+			pdp->punon = 1;
+			pdp->p_state = 1000;
+		} else {
+			pdp->pcp = nac;
+			if(dev == 00005)
+				pdp->pb |= IO & 0377;
+			else
+				pdp->pb |= 0200 | (IO >> 12)&077;
+		}
+		break;
+
+	case 007:	// dpy
 		if(!pulse) {
 			pdp->dbx = 0;
 			pdp->dby = 0;
@@ -746,20 +819,20 @@ iot(PDP1 *pdp, int pulse)
 		}
 		break;
 
-	case 00030:	// rrb
+	case 030:	// rrb
 		if(pulse) {
 			IO |= pdp->rb;
 			pdp->rbs = 0;
 		}
 		break;
 
-	case 00033:	// cks
+	case 033:	// cks
 		if(pulse) {
 			// TODO: LP
 			IO |= pdp->rbs<<16;
-			// TODO: ~TYO
-			// TODO: TBS
-			// TODO: ~PUN
+			IO |= !pdp->tyo<<15;
+			IO |= pdp->tbs<<14;
+			IO |= !pdp->punon<<13;
 			// ..
 			IO |= pdp->sbm<<11;
 		}
@@ -774,6 +847,7 @@ iot(PDP1 *pdp, int pulse)
 static void
 handleio(PDP1 *pdp)
 {
+	/* Reader */
 	if(pdp->rcl && pdp->r_fd >= 0) {
 		u8 c;
 		if(read(pdp->r_fd, &c, 1) <= 0) {
@@ -807,6 +881,52 @@ handleio(PDP1 *pdp)
 		}
 	}
 
+	/* Punch */
+	if(pdp->punon && pdp->p_state) {
+		pdp->p_state--;
+		if(pdp->p_state == 0) {
+			if(pdp->p_fd >= 0) {
+				char c = pdp->pb;
+				write(pdp->p_fd, &c, 1);
+			}
+			if(pdp->pcp) pdp->ios = 1;
+		}
+	}
+
+	/* Typewriter */
+	if(pdp->typ_state) {
+		// wrong timing
+		pdp->typ_state--;
+		if(pdp->typ_state == 0) {
+			if((pdp->tb&076) == 034)
+				pdp->tbb = pdp->tb & 1;
+			else if(pdp->typ_fd >= 0) {
+				char c = (pdp->tbb<<6) | pdp->tb;
+				write(pdp->typ_fd, &c, 1);
+			}
+			// this is really much more complicated
+			// and overlaps with the type-in logic
+			pdp->tyo = 0;
+			if(pdp->tcp) pdp->ios = 1;
+		}
+	}
+	if(hasinput(pdp->typ_fd)) {
+		char c;
+		if(read(pdp->typ_fd, &c, 1) <= 0) {
+			close(pdp->typ_fd);
+			pdp->typ_fd = -1;
+			return;
+		}
+		pdp->tb = 0;
+		// STROBE TYPE
+		pdp->tb |= c & 077;
+		//
+		pdp->tbs = 1;
+		// TYPE SYNC
+		pdp->pf |= 040;
+	}
+
+	/* Display */
 	if(pdp->dpy_state) {
 		pdp->dpy_state--;
 		if(pdp->dpy_state == 0) {
@@ -854,7 +974,7 @@ getwrd(int fd)
 }
 
 void
-readrim2(PDP1 *pdp)
+readrim(PDP1 *pdp)
 {
 	int inst, wd;
 
@@ -927,10 +1047,17 @@ main(int argc, char *argv[])
 //	const char *tape = "../pdp1/tapes/circle.rim";
 //	const char *tape = "../pdp1/tapes/munch.rim";
 //	const char *tape = "../pdp1/tapes/minskytron.rim";
-	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
+//	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
+	const char *tape = "../pdp1/tapes/ddt.rim";
 
 	pdp->r_fd = open(tape, O_RDONLY);
-	readrim2(pdp);
+	readrim(pdp);
+
+	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC);
+
+	pdp->typ_fd = open("/tmp/typ", O_RDWR);
+	if(pdp->typ_fd < 0)
+		printf("can't open /tmp/typ\n");
 
 	emu(pdp, &panel);
 	return 0;	// can't happen
