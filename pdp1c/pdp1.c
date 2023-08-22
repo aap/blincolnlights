@@ -81,6 +81,9 @@ struct PDP1
 	int rbs;
 	// simulation
 	int r_fd;
+	int r_state;
+	int rim_return;
+	int rim_cycle;		// hack to trigger read-in SP1
 
 	// punch
 	int pcp;
@@ -97,8 +100,8 @@ struct PDP1
 	int tbb;
 	int tyo;
 	// simulation
-	int typ_state;
 	int typ_fd;
+	int typ_state;
 };
 
 
@@ -162,6 +165,11 @@ struct PDP1
 #define B16 0000002
 #define B17 0000001
 
+#define CYC(us) ((us)/5)
+#define RDLY CYC(2500)		// 400/s
+#define PDLY CYC(15873)		// 63/s
+
+static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
 static void handleio(PDP1 *pdp);
 
@@ -204,12 +212,19 @@ pwrclr(PDP1 *pdp)
 	pdp->rc = 0;
 	pdp->rby = 0;
 	pdp->rcl = 0;
+	pdp->r_state = 0;
+	pdp->rim_return = 0;
+	pdp->rim_cycle = 0;
 
 	pdp->punon = 0;
+	pdp->p_state = 0;
 
 	pdp->tbs = 0;
 	pdp->tbb = 0;
 	pdp->tyo = 0;
+	pdp->typ_state = 0;
+
+	pdp->dpy_state = 0;
 }
 
 static void
@@ -237,10 +252,11 @@ spec(PDP1 *pdp)
 	pdp->run = 0;
 	if(pdp->start_sw || pdp->deposit_sw || pdp->examine_sw)
 		pdp->rim = 0;
+	pdp->sbm = 0;	// TODO
 
 	// SP1
 	pdp->run_enable = 1;
-	pdp->ma = 0;
+	MA = 0;
 	if(pdp->start_sw)
 		pdp->cyc = 0;
 	if(pdp->deposit_sw)
@@ -250,19 +266,19 @@ spec(PDP1 *pdp)
 
 	// SP2
 	if(pdp->start_sw || pdp->deposit_sw || pdp->examine_sw)
-		pdp->pc |= pdp->ta;
+		PC |= pdp->ta;
 	if(pdp->deposit_sw || pdp->examine_sw || pdp->rim)
 		pdp->cyc = 1;
 	if(pdp->examine_sw)
 		pdp->ir |= 020>>1;
 	if(pdp->deposit_sw) {
 		pdp->ir |= 024>>1;
-		pdp->ac |= pdp->tw;
+		AC |= pdp->tw;
 	}
 
 	// SP3
 	if(pdp->deposit_sw || pdp->examine_sw) {
-		pdp->ma |= pdp->pc;
+		MA |= PC;
 		pdp->cychack = 1;
 	}
 
@@ -275,6 +291,54 @@ spec(PDP1 *pdp)
 	pdp->continue_sw = 0;
 	pdp->examine_sw = 0;
 	pdp->deposit_sw = 0;
+}
+
+static void
+start_readin(PDP1 *pdp)
+{
+	// PB
+	pdp->run = 0;
+	pdp->rim = 1;
+	pdp->sbm = 0;
+
+	pdp->rim_cycle = 1;
+}
+static void
+readin1(PDP1 *pdp)
+{
+	pdp->rim_cycle = 0;
+
+	// SP1
+	pdp->run_enable = 1;
+	MA = 0;
+	if(pdp->rim) {	// guaranteed
+		MB = 0;
+		sc(pdp);
+		iot_pulse(pdp, 1, 2, 0);
+	}
+}
+static void
+readin2(PDP1 *pdp)
+{
+	// SP2
+	pdp->cyc = 1;
+	MB |= IO;
+	// epc = eta
+
+	// SP3
+	IR |= MB>>13;
+	MA |= MB & ADDRMASK;
+	// extend: exd = 1
+
+	// SP4
+	if(IR_DIO) iot_pulse(pdp, 1, 2, 0);
+	if(IR_JMP) {
+		pdp->run = 1;
+		pdp->cyc = 0;
+		pdp->rim = 0;
+		PC |= MB & ADDRMASK;
+		pdp->cychack = 1;	// actually TP0 should work too
+	}
 }
 
 static int
@@ -346,12 +410,15 @@ shro(PDP1 *pdp)
 static void
 cycle0(PDP1 *pdp)
 {
-	switch(pdp->cychack) {
+	int hack = pdp->cychack;
+	pdp->cychack = 0;
+	switch(hack) {
 	default:
 	// TP0
 	if(IR_SHRO && (MB & B12)) shro(pdp);
 	MA |= PC;
 
+	case 1:
 	// TP1
 	if(IR_SHRO && (MB & B11)) shro(pdp);
 	// emc = 0
@@ -450,8 +517,6 @@ cycle0(PDP1 *pdp)
 		if(pdp->ioc) iot(pdp, 1);
 	}
 	}
-
-	pdp->cychack = 0;
 }
 
 static void
@@ -500,7 +565,9 @@ defer(PDP1 *pdp)
 static void
 cycle1(PDP1 *pdp)
 {
-	switch(pdp->cychack) {
+	int hack = pdp->cychack;
+	pdp->cychack = 0;
+	switch(hack) {
 	default:
 	// TP0
 	if(IR_CALJDA && !(MB & B5))
@@ -723,15 +790,26 @@ emu(PDP1 *pdp, Panel *panel)
 				cycle(pdp);
 			}
 			if(down & KEY_STOP) pdp->run_enable = 0;
+			if(down & KEY_READIN) start_readin(pdp);
+			if(pdp->rim_cycle) readin1(pdp);
+			if(pdp->rim_return && --pdp->rim_return == 0 &&
+			   pdp->rim) {
+				// restart after reader is done
+				if(IR == 0 && !(sw1 & KEY_STOP))
+					readin2(pdp);
+				else if(IR_DIO) {
+					cycle(pdp);
+					pdp->rim_cycle = 1;
+				}
+			}
 			pdp->single_cyc_sw = !!(sw1 & SW_SSTEP);
 			pdp->single_inst_sw = !!(sw1 & SW_SINST);
 
-			if(pdp->run) {	// not really correct
+			if(pdp->run)	// not really correct
 				cycle(pdp);
-			}
 			throttle(pdp);
 			handleio(pdp);
-			measuretime(pdp);
+//			measuretime(pdp);
 		} else {
 			pwrclr(pdp);
 
@@ -743,11 +821,8 @@ emu(PDP1 *pdp, Panel *panel)
 }
 
 static void
-iot(PDP1 *pdp, int pulse)
+iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 {
-	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
-	int dev = MB & 077;
-	if(!pulse && (dev&070)==030) IO = 0;
 	switch(dev) {
 	case 000:
 		break;
@@ -765,6 +840,7 @@ iot(PDP1 *pdp, int pulse)
 				pdp->rc = 1;
 				pdp->rcl = 1;
 			}
+			pdp->r_state = RDLY;
 			pdp->rb = 0;
 		}
 		break;
@@ -778,7 +854,7 @@ iot(PDP1 *pdp, int pulse)
 			if(!pdp->tyo) {
 				pdp->tyo = 1;
 				pdp->tb |= IO & 077;
-				pdp->typ_state = 5000;
+				pdp->typ_state = CYC(25000);
 			}
 		}
 		break;
@@ -797,7 +873,7 @@ iot(PDP1 *pdp, int pulse)
 		if(!pulse) {
 			pdp->pb = 0;
 			pdp->punon = 1;
-			pdp->p_state = 1000;
+			pdp->p_state = PDLY;
 		} else {
 			pdp->pcp = nac;
 			if(dev == 00005)
@@ -815,7 +891,7 @@ iot(PDP1 *pdp, int pulse)
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
-			pdp->dpy_state = 10;
+			pdp->dpy_state = CYC(50);
 		}
 		break;
 
@@ -845,39 +921,53 @@ iot(PDP1 *pdp, int pulse)
 }
 
 static void
+iot(PDP1 *pdp, int pulse)
+{
+	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
+	int dev = MB & 077;
+	if(!pulse && (dev&070)==030) IO = 0;
+	iot_pulse(pdp, pulse, dev, nac);
+}
+
+static void
 handleio(PDP1 *pdp)
 {
 	/* Reader */
-	if(pdp->rcl && pdp->r_fd >= 0) {
-		u8 c;
-		if(read(pdp->r_fd, &c, 1) <= 0) {
-			close(pdp->r_fd);
-			pdp->r_fd = -1;
-			return;
-		}
-		if(pdp->rc && (!pdp->rby || c&0200)) {
-			// STROBE PETR
-			pdp->rcl = 0;
-			pdp->rb |= c & (pdp->rby ? 077 : 0377);
-			// SHIFT RB
-			if(pdp->rc != 3) {
-				pdp->rb = (pdp->rb<<6) & WORDMASK;
-				pdp->rcl = 1;
+	if(pdp->rcl && pdp->r_state) {
+		pdp->r_state--;
+		if(pdp->r_state == 0 && pdp->r_fd >= 0) {
+			u8 c;
+			pdp->r_state = RDLY;
+			if(read(pdp->r_fd, &c, 1) <= 0) {
+				close(pdp->r_fd);
+				pdp->r_fd = -1;
+				return;
 			}
-			// CLR IO
-			if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
-			// -----
-			// +1 RC
-			if(pdp->rc == 3) {
-				// READER RETURN
-				if(pdp->rcp) pdp->ios = 1;
-				else pdp->rbs = 1;
-				if(pdp->rcp || pdp->rim) {
-					IO |= pdp->rb;
-					pdp->rbs = 0;
+			if(pdp->rc && (!pdp->rby || c&0200)) {
+				// STROBE PETR
+				pdp->rcl = 0;
+				pdp->rb |= c & (pdp->rby ? 077 : 0377);
+				// SHIFT RB
+				if(pdp->rc != 3) {
+					pdp->rb = (pdp->rb<<6) & WORDMASK;
+					pdp->rcl = 1;
 				}
+				// CLR IO
+				if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
+				// -----
+				// +1 RC
+				if(pdp->rc == 3) {
+					// READER RETURN
+					if(pdp->rcp) pdp->ios = 1;
+					else pdp->rbs = 1;
+					if(pdp->rcp || pdp->rim) {
+						IO |= pdp->rb;
+						pdp->rbs = 0;
+						if(pdp->rim) pdp->rim_return = 2;
+					}
+				}
+				pdp->rc = (pdp->rc+1) & 3;
 			}
-			pdp->rc = (pdp->rc+1) & 3;
 		}
 	}
 
@@ -1051,7 +1141,7 @@ main(int argc, char *argv[])
 	const char *tape = "../pdp1/tapes/ddt.rim";
 
 	pdp->r_fd = open(tape, O_RDONLY);
-	readrim(pdp);
+//	readrim(pdp);
 
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC);
 
