@@ -1,150 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-
-#include <fcntl.h>
-#include <unistd.h>
-#include <pthread.h>
-
-#include "args.h"
 #include "common.h"
-
-typedef uint64_t u64;
-typedef uint32_t u32, Word;
-typedef uint16_t u16, Addr;
-typedef uint8_t u8;
-#define WORDMASK 0777777
-#define ADDRMASK 07777
-#define MAXMEM (4*1024)
-#define nil NULL
-
-typedef struct PDP1 PDP1;
-
-struct PDP1
-{
-	Word ac;
-	Word io;
-	Word mb;
-	Word ma;
-	Word pc;
-	Word ir;
-	Word core[MAXMEM];
-
-	Word ta;
-	Word tw;
-
-	int start_sw;
-	int stop_sw;
-	int continue_sw;
-	int examine_sw;
-	int deposit_sw;
-
-	int run, run_enable;
-	int cyc;
-	int df1, df2;
-	int bc1, bc2;
-	int ov1, ov2;
-	int rim;
-	int sbm;
-	int ioc;
-	int ihs;
-	int ios;
-	int ioh;
-
-	int ss;
-	int pf;
-
-	int single_cyc_sw;
-	int single_inst_sw;
-
-	int cychack;	// for cycle entry past TP0
-	int ncycle;
-	u64 prevtime, time;	// measure time
-	u64 prevcyctm, cyctm;	// cycle time
-	int debt;
-
-	// display
-	int dcp;
-	int dbx, dby;
-	// simulation
-	int dpy_fd;
-	int dpy_state;
-	int dpy_dt;		// in microseconds
-
-	// reader
-	int rcp;
-	int rb;
-	int rc;
-	int rby;
-	int rcl;
-	int rbs;
-	// simulation
-	int r_fd;
-	int r_state;
-	int rim_return;
-	int rim_cycle;		// hack to trigger read-in SP1
-
-	// punch
-	int pcp;
-	int pb;
-	int punon;
-	// simulation
-	int p_state;
-	int p_fd;
-
-	// typewriter
-	int tcp;
-	int tb;
-	int tbs;
-	int tbb;
-	int tyo;
-	// simulation
-	int typ_fd;
-	int typ_state;
-};
-
-
-#define IR pdp->ir
-#define PC pdp->pc
-#define MA pdp->ma
-#define MB pdp->mb
-#define AC pdp->ac
-#define IO pdp->io
-
-// 0
-#define IR_AND (IR == 001)
-#define IR_IOR (IR == 002)
-#define IR_XOR (IR == 003)
-#define IR_XCT (IR == 004)
-// 5
-// 6
-#define IR_CALJDA (IR == 007)
-#define IR_LAC (IR == 010)
-#define IR_LIO (IR == 011)
-#define IR_DAC (IR == 012)
-#define IR_DAP (IR == 013)
-#define IR_DIP (IR == 014)
-#define IR_DIO (IR == 015)
-#define IR_DZM (IR == 016)
-// 17
-#define IR_ADD (IR == 020)
-#define IR_SUB (IR == 021)
-#define IR_IDX (IR == 022)
-#define IR_ISP (IR == 023)
-#define IR_SAD (IR == 024)
-#define IR_SAS (IR == 025)
-#define IR_MUS (IR == 026)
-#define IR_DIS (IR == 027)
-#define IR_JMP (IR == 030)
-#define IR_JSP (IR == 031)
-#define IR_SKIP (IR == 032)
-#define IR_SHRO (IR == 033)
-#define IR_LAW (IR == 034)
-#define IR_IOT (IR == 035)
-// 36
-#define IR_OPR (IR == 037)
-#define IR_INCORR (IR==0 || IR==5 || IR==6 || IR==017 || IR==036)
+#include "pdp1.h"
+#include <unistd.h>
 
 #define B0 0400000
 #define B1 0200000
@@ -171,35 +27,8 @@ struct PDP1
 
 static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
-static void handleio(PDP1 *pdp);
 
-static struct timespec starttime;
 void
-inittime(void)
-{
-	clock_gettime(CLOCK_MONOTONIC, &starttime);
-}
-u64
-gettime(void)
-{
-	struct timespec tm;
-	u64 t;
-	clock_gettime(CLOCK_MONOTONIC, &tm);
-	tm.tv_sec -= starttime.tv_sec;
-	t = tm.tv_nsec;
-	t += (u64)tm.tv_sec * 1000 * 1000 * 1000;
-	return t;
-}
-void
-nsleep(u64 ns)
-{
-	struct timespec tm;
-	tm.tv_sec = ns / (1000 * 1000 * 1000);
-	tm.tv_nsec = ns % (1000 * 1000 * 1000);
-	nanosleep(&tm, nil);
-}
-
-static void
 pwrclr(PDP1 *pdp)
 {
 	IR = rand() & 077;
@@ -245,7 +74,7 @@ sc(PDP1 *pdp)
 	pdp->tyo = 0;
 }
 
-static void
+void
 spec(PDP1 *pdp)
 {
 	// PB
@@ -293,7 +122,7 @@ spec(PDP1 *pdp)
 	pdp->deposit_sw = 0;
 }
 
-static void
+void
 start_readin(PDP1 *pdp)
 {
 	// PB
@@ -303,7 +132,7 @@ start_readin(PDP1 *pdp)
 
 	pdp->rim_cycle = 1;
 }
-static void
+void
 readin1(PDP1 *pdp)
 {
 	pdp->rim_cycle = 0;
@@ -317,7 +146,7 @@ readin1(PDP1 *pdp)
 		iot_pulse(pdp, 1, 2, 0);
 	}
 }
-static void
+void
 readin2(PDP1 *pdp)
 {
 	// SP2
@@ -712,114 +541,6 @@ measuretime(PDP1 *pdp)
 	}
 }
 
-void
-emu(PDP1 *pdp, Panel *panel)
-{
-	int sw0, sw1;
-	int psw1;
-	int down;
-	int sel1, sel2;
-	int indicators;
-
-	sw0 = 0;
-	sw1 = 0;
-	sel1 = 0;
-	sel2 = 0;
-
-	pwrclr(pdp);
-
-	inittime();
-	pdp->prevtime = pdp->time = gettime();
-	pdp->prevcyctm = pdp->cyctm = gettime();
-	for(;;) {
-		psw1 = sw1;
-		sw0 = panel->sw0;
-		sw1 = panel->sw1;
-		down = sw1 & ~psw1;
-
-		if(down) {
-			if(down & KEY_SEL1)
-				sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_SEL2)
-				sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_LOAD1) {
-				if(sw1 & KEY_MOD)
-					pdp->ss = sw0 & 077;
-				else
-					pdp->ta = sw0 & ADDRMASK;
-			}
-			if(down & KEY_LOAD2) pdp->tw = sw0;
-		}
-
-		if(sw1 & SW_POWER) {
-			indicators = 0;
-			if(sw1 & KEY_SPARE) {
-				indicators |= pdp->ioc<<9;
-				indicators |= pdp->ihs<<8;
-				indicators |= pdp->ios<<7;
-				indicators |= pdp->ioh<<6;
-			} else {
-				indicators |= pdp->run<<9;
-				indicators |= pdp->cyc<<8;
-				indicators |= pdp->df1<<7;
-				indicators |= pdp->rim<<6;
-			}
-			indicators |= (0x8>>sel1) << 10;
-			indicators |= (0x8>>sel2) << 14;
-			indicators |= sw1 & 0x3F;
-			switch(sel1) {
-			case 0: panel->lights0 = AC; break;
-			case 1: panel->lights0 = MA | IR<<12; break;
-			case 2: panel->lights0 = pdp->pf<<6 | pdp->ss; break;
-			case 3: panel->lights0 = pdp->ta; break;
-			}
-			switch(sel2) {
-			case 0: panel->lights1 = IO; break;
-			case 1: panel->lights1 = PC; break;
-			case 2: panel->lights1 = MB; break;
-			case 3: panel->lights1 = pdp->tw; break;
-			}
-			panel->lights2 = indicators;
-
-			if(down & (KEY_START | KEY_CONT | KEY_EXAM | KEY_DEP)) {
-				pdp->start_sw = !!(down & KEY_START);
-				pdp->continue_sw = !!(down & KEY_CONT);
-				pdp->examine_sw = !!(down & KEY_EXAM);
-				pdp->deposit_sw = !!(down & KEY_DEP);
-				spec(pdp);
-				cycle(pdp);
-			}
-			if(down & KEY_STOP) pdp->run_enable = 0;
-			if(down & KEY_READIN) start_readin(pdp);
-			if(pdp->rim_cycle) readin1(pdp);
-			if(pdp->rim_return && --pdp->rim_return == 0 &&
-			   pdp->rim) {
-				// restart after reader is done
-				if(IR == 0 && !(sw1 & KEY_STOP))
-					readin2(pdp);
-				else if(IR_DIO) {
-					cycle(pdp);
-					pdp->rim_cycle = 1;
-				}
-			}
-			pdp->single_cyc_sw = !!(sw1 & SW_SSTEP);
-			pdp->single_inst_sw = !!(sw1 & SW_SINST);
-
-			if(pdp->run)	// not really correct
-				cycle(pdp);
-			throttle(pdp);
-			handleio(pdp);
-//			measuretime(pdp);
-		} else {
-			pwrclr(pdp);
-
-			panel->lights0 = 0;
-			panel->lights1 = 0;
-			panel->lights2 = 0;
-		}
-	}
-}
-
 static void
 iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 {
@@ -929,7 +650,7 @@ iot(PDP1 *pdp, int pulse)
 	iot_pulse(pdp, pulse, dev, nac);
 }
 
-static void
+void
 handleio(PDP1 *pdp)
 {
 	/* Reader */
@@ -1025,8 +746,8 @@ handleio(PDP1 *pdp)
 				int y = pdp->dby;
 				if(x & 01000) x++;
 				if(y & 01000) y++;
-				x = ((x+01000)&01777);
-				y = ((y+01000)&01777);
+				x = (x+01000)&01777;
+				y = (y+01000)&01777;
 				int cmd = x | (y<<10) | (4<<20) | (pdp->dpy_dt<<23);
 				pdp->dpy_dt = 0;
 				write(pdp->dpy_fd, &cmd, sizeof(cmd));
@@ -1086,69 +807,4 @@ readrim(PDP1 *pdp)
 			return;
 		}
 	}
-}
-
-char *argv0;
-void
-usage(void)
-{
-	fprintf(stderr, "usage: %s [-h host] [-p port]\n", argv0);
-	exit(1);
-}
-
-int
-main(int argc, char *argv[])
-{
-	Panel panel;
-	PDP1 pdp1, *pdp = &pdp1;
-	pthread_t th;
-	const char *host;
-	int port;
-
-	host = "localhost";
-	port = 3400;
-	ARGBEGIN {
-	case 'h':
-		host = EARGF(usage());
-		break;
-	case 'p':
-		port = atoi(EARGF(usage()));
-		break;
-	default:
-		usage();
-	} ARGEND;
-
-	initGPIO();
-	memset(&panel, 0, sizeof(panel));
-	memset(pdp, 0, sizeof(*pdp));
-
-	pdp->dpy_fd = dial(host, port);
-	if(pdp->dpy_fd < 0)
-		printf("can't open display\n");
-	nodelay(pdp->dpy_fd);
-
-	pthread_create(&th, NULL, panelthread, &panel);
-
-//	pdp->tw = 0777777;
-	pdp->tw = 0677721;	// minskytron
-	pdp->ss = 060;
-
-//	const char *tape = "../pdp1/maindec/maindec1_20.rim";
-//	const char *tape = "../pdp1/tapes/circle.rim";
-//	const char *tape = "../pdp1/tapes/munch.rim";
-//	const char *tape = "../pdp1/tapes/minskytron.rim";
-//	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
-	const char *tape = "../pdp1/tapes/ddt.rim";
-
-	pdp->r_fd = open(tape, O_RDONLY);
-//	readrim(pdp);
-
-	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC);
-
-	pdp->typ_fd = open("/tmp/typ", O_RDWR);
-	if(pdp->typ_fd < 0)
-		printf("can't open /tmp/typ\n");
-
-	emu(pdp, &panel);
-	return 0;	// can't happen
 }

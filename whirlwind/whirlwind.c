@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -10,14 +11,10 @@
 #include "args.h"
 #include "common.h"
 
-typedef uint64_t u64;
-typedef uint32_t u32;
-typedef uint16_t u16, Addr, Word;
-typedef uint8_t u8;
+typedef u16 Addr, Word;
 #define WORDMASK 0177777
 #define ADDRMASK 03777
 #define MAXMEM (2*1024)
-#define nil NULL
 
 /*
     logic and schematics:
@@ -28,13 +25,35 @@ typedef uint8_t u8;
 */
 
 typedef struct Whirlwind Whirlwind;
+typedef struct ExUnit ExUnit;
+typedef struct Scope Scope;
+
+struct ExUnit
+{
+	int active;     // reading or recording
+	void (*start)(Whirlwind *ww, ExUnit *eu);
+	void (*stop)(Whirlwind *ww, ExUnit *eu);
+	void (*record)(Whirlwind *ww, ExUnit *eu);
+	void (*read)(Whirlwind *ww, ExUnit *eu);
+};
+static void nullIO(Whirlwind *ww, ExUnit *eu) {}
+ExUnit nullUnit = { 0, nullIO, nullIO, nullIO, nullIO };
+
+struct Scope
+{
+	ExUnit eu;
+	int fd;
+	u64 last;
+};
 
 struct Whirlwind
 {
 	// control - 100
+	int ms_on;
 	int stop_clock;
 	int automatic;
 	int stop_tp5;		// no idea how this is really done
+	int stop_si1;
 	int tpd;
 	Word pc;
 	Word pc_reset_sw;
@@ -63,13 +82,28 @@ struct Whirlwind
 	int mul_ff;
 	int po_ff, po_pulse;
 	// IO - 400
+	Word ior;
+	Word ios;
+	int ios_dec;
+	int iocc;
+	int iodc;
+	int iodc_start;
+	int interlock;
 	// external units - 500
+	int vdefl;
+	int hdefl;
+	ExUnit misc;
+	Scope scope;
+	ExUnit *active_unit;
 	// check - 600
 	Word cr;
 	// magnetic storage - 800
 	Word par;
 	Word mar;
+	Word mar_buf;	// no idea how this works
 	Word ms[MAXMEM];
+	int ms_strobe;
+	int ms_state;	// simulate delay
 
 	Word bus, ckbus;
 
@@ -82,35 +116,35 @@ struct Whirlwind
 //	inactivity	(500ms no completion)
 
 	// simulation
-	u64 prevcyctm, cyctm;	// cycle time
+	u64 simtime;
+	u64 realtime;
 };
 
+// IOS decoded:
+// from E-466-1_Operation_of_the_In-Out_Element_Feb54.pdf
+#define C01	(1<<0)		// all output units
+#define C02	(1<<1)		// paper tape automatic
+#define C03	(1<<2)		// all scopes
+#define C04	(1<<3)		// magnetic drum read
+#define C05	(1<<4)		// all readers, mt unix, cmaera, buffer drum
+				// switch field, aux drum change group, or output coder
+#define C06	(1<<5)		// paper tape automatic
+#define C07	(1<<6)		// mt-delayed print out
+#define C08	(1<<7)		// indicator lights
+#define C09	(1<<8)		// vector display
+#define C10	(1<<9)		// number display
+#define C11	(1<<10)		// point and vector display
+#define C12	(1<<11)		// vector and number display
+#define MT01	(1<<12)		// mt read or rerecord
+#define MT02	(1<<13)		// mt record
+#define MT03	(1<<14)		// mt stop after record
+#define MD04	(1<<15)		// aux drum change group
+#define MT16	(1<<16)		// mt
+#define LG01	(1<<17)		// point display
+#define GA01	(1<<18)		// output coder
 
-static struct timespec starttime;
-void
-inittime(void)
-{
-	clock_gettime(CLOCK_MONOTONIC, &starttime);
-}
-u64
-gettime(void)
-{
-	struct timespec tm;
-	u64 t;
-	clock_gettime(CLOCK_MONOTONIC, &tm);
-	tm.tv_sec -= starttime.tv_sec;
-	t = tm.tv_nsec;
-	t += (u64)tm.tv_sec * 1000 * 1000 * 1000;
-	return t;
-}
-void
-nsleep(u64 ns)
-{
-	struct timespec tm;
-	tm.tv_sec = ns / (1000 * 1000 * 1000);
-	tm.tv_nsec = ns % (1000 * 1000 * 1000);
-	nanosleep(&tm, nil);
-}
+// one pulse sets carry, one pulse gated by carry
+#define IODC(us) ~(us-2)
 
 #define SI_ (0<<11) +
 #define rs_ (1<<11) +
@@ -188,6 +222,75 @@ const int cpo120_cm_rd_out_tp6 = 0xAAAAAAAA;
 
 #define MS_SELECT !!(ww->bus & 0003740)
 
+void handleio(Whirlwind *ww);
+static void ioc_reset_si(Whirlwind *ww);
+static void ioc_reset_rc(Whirlwind *ww);
+static void ioc_reset_rd(Whirlwind *ww);
+
+static void
+agescope(Whirlwind *ww)
+{
+	Scope *s = &ww->scope;
+	int cmd = 511<<23;
+	assert(s->last < ww->simtime);
+	u64 dt = (ww->simtime - s->last)/1000;
+	while(dt >= 511) {
+		s->last += 511*1000;
+		write(s->fd, &cmd, sizeof(cmd));
+		dt = (ww->simtime - s->last)/1000;
+	}
+}
+
+static void
+intensify(Whirlwind *ww)
+{
+	Scope *s = &ww->scope;
+	if(s->fd >= 0) {
+		agescope(ww);
+		u32 cmd = 0;
+		int x = ww->hdefl;
+		int y = ww->vdefl;
+		int dt = (ww->simtime - s->last)/1000;
+		// Convert [-1.0,+1.0] to [0,1023]
+		if(x & 02000) x++;
+		if(y & 02000) y++;
+		x = ((x+02000)&03777)>>1;
+		y = ((y+02000)&03777)>>1;
+		cmd = x | (y<<10) | (7<<20) | (dt<<23);
+		s->last = ww->simtime;
+		if(write(s->fd, &cmd, 4) < 4)
+			s->fd = -1;
+	}
+}
+
+static void
+ios_decode(Whirlwind *ww)
+{
+	ww->ios_dec = 0;
+	ww->active_unit = &nullUnit;
+	switch((ww->ios>>6) & 7) {
+	case 0:
+		ww->active_unit = &ww->misc;
+		break;
+	case 1: break;	// magnetiv tape
+	case 2: break;	// paper tape
+	case 3: break;	// intervention register
+	case 4: break;	// mite buffer storage
+	case 5: break;	// indicator light
+	case 6:		// display
+		ww->ios_dec = C01|C03;
+		switch((ww->ios>>9) & 3) {
+		case 0: ww->ios_dec |= LG01|C11; break;	// points
+		case 1: ww->ios_dec |= C09|C11|C12; break;	// vectors
+		case 2:
+		case 3: ww->ios_dec |= C10|C12; break;	// symbols
+		}
+		ww->active_unit = &ww->scope.eu;
+		break;
+	case 7: break;	// magnetic drum
+	}
+}
+
 static void
 ss_clear(Whirlwind *ww)
 {
@@ -210,20 +313,17 @@ ss_rd_in(Whirlwind *ww)
 }
 
 static void
-ms_read(Whirlwind *ww)
+ms_start(Whirlwind *ww, int strobe)
 {
-	// a bit silly
-	ww->par |= ww->ms[ww->mar];
-	ww->ms[ww->mar] = 0;
-	ww->ms[ww->mar] |= ww->par;
+	// MS write is supposed to clear SS,
+	// which should probably also clear mar,
+	// but then where is the address stored?
+	// use mar_buf here as a hack
+	ww->mar_buf = ww->mar;
+	ww->ms_on = 1;
+	ww->ms_state = 1;
+	ww->ms_strobe = strobe;
 }
-static void
-ms_write(Whirlwind *ww)
-{
-	ww->ms[ww->mar] = 0;
-	ww->ms[ww->mar] |= ww->par;
-}
-
 
 static Word
 stor_rd_out(Whirlwind *ww)
@@ -328,6 +428,21 @@ tp1(Whirlwind *ww)
 	if(cpo43_ac_rd_out_tp1 & ww->cs_dec)
 		ww->bus |= ww->ac;
 
+	if(SI & ww->cs_dec) {
+		ww->vdefl |= ww->bus >> 5;
+		// TODO: drum
+		// TODO: when does this happen?
+		if(0)
+			ww->ior |= ww->bus;
+		ioc_reset_si(ww);
+		ww->active_unit->start(ww, ww->active_unit);
+	}
+	if(RC & ww->cs_dec) {
+		ww->hdefl |= ww->bus >> 5;
+		ww->par |= ww->bus;	// and parity count
+		if(ww->active_unit != &ww->scope.eu)
+			ww->ior |= ww->bus;
+	}
 	if(cpo08_pc_rd_in_tp1 & ww->cs_dec)
 		ww->pc |= ww->bus & 03777;
 	if(cpo71_stor_par_rd_in_tp1 & ww->cs_dec) {
@@ -366,9 +481,7 @@ tp1(Whirlwind *ww)
 	}
 	if(cpo82_ms_write_ss_clear_tp1 & ww->cs_dec) {
 		if(ww->ssc)
-			ms_write(ww);
-		// is this really what's happening?
-		// maybe only clear TSS while MS is writing?
+			ms_start(ww, 0);
 		ss_clear(ww);
 	}
 
@@ -381,6 +494,9 @@ tp2(Whirlwind *ww)
 {
 	TRACE("TP2\n");
 
+	if(RC & ww->cs_dec) {
+		// TODO: Sense BC#3
+	}
 	if(cpo12_pc_rd_out_tp2 & ww->cs_dec)
 		ww->bus |= ww->pc;
 	if(cpo17_ss_rd_in_tp25 & ww->cs_dec)
@@ -422,6 +538,11 @@ tp3(Whirlwind *ww)
 {
 	TRACE("TP3\n");
 
+	if(RC & ww->cs_dec) {
+		ioc_reset_rc(ww);
+		// init record
+		ww->active_unit->record(ww, ww->active_unit);
+	}
 	if(cpo18_ss_rd_out_cr_rd_in_tp3 & ww->cs_dec) {
 		ww->bus |= ww->ssc ? ww->mar : ww->tss;
 		ww->cr ^= ww->bus;
@@ -438,7 +559,7 @@ tp3(Whirlwind *ww)
 	if(cpo81_ms_rd_par_clear_tp3 & ww->cs_dec) {
 		ww->par = 0;
 		if(ww->ssc)
-			ms_read(ww);
+			ms_start(ww, 1);
 	}
 }
 
@@ -513,6 +634,20 @@ tp6(Whirlwind *ww)
 {
 	TRACE("TP6\n");
 
+	// IO, no CPO numbers known
+	if(SI & ww->cs_dec) {
+		if((ww->ios_dec & C01) && ww->interlock) {
+			ww->interlock = 0;
+			ww->stop_clock = 1;
+		}
+	}
+	if((RD|RC|BI|BO) & ww->cs_dec) {
+		if(ww->interlock) {
+			ww->interlock = 0;
+			ww->stop_clock = 1;
+		}
+	}
+
 	if(cpo116_cm_rd_out_tp6 & ww->cs_dec)
 		ww->bus |= 0100000;
 	if(cpo117_cm_rd_out_tp6 & ww->cs_dec)
@@ -544,7 +679,7 @@ tp6(Whirlwind *ww)
 	if(cpo84_ms_rd_par_clear_tp6 & ww->cs_dec) {
 		ww->par = 0;
 		if(ww->ssc)
-			ms_read(ww);
+			ms_start(ww, 1);
 	}
 }
 
@@ -555,6 +690,25 @@ tp7(Whirlwind *ww)
 
 	if(cpo56_transfer_check_tp47 & ww->cs_dec)
 		if(ww->cr) cr_alarm(ww);
+
+	// IO, no CPO numbers known
+	if(SI & ww->cs_dec) {
+		ww->ios = 0;
+		ww->ckbus |= ww->par & 03777;
+		ww->cr ^= ww->ckbus;
+		// stop units
+        	ww->misc.stop(ww, &ww->misc);
+        	ww->scope.eu.stop(ww, &ww->scope.eu);
+
+		// IOS delay start
+		ww->interlock = 0;
+ww->stop_clock = 1;
+		ww->iocc = 017;
+		ww->iodc = 077777;
+		// IOS delay
+		ww->iodc_start = 1;
+		ww->iodc &= IODC(15);
+	}
 	if(cpo50_stop_clock_tp7 & ww->cs_dec)
 		ww->stop_clock = 1;
 	if(cpo64_stor_rd_out_tp7 & ww->cs_dec)
@@ -598,17 +752,29 @@ tp7(Whirlwind *ww)
 
 	if(cpo05_add_tp7_dly & ww->cs_dec)
 		add(ww, ww->ar);
+	if((SI|RC|RD) & ww->cs_dec)
+		ww->ior = 0;
+	if(SI & ww->cs_dec) {
+		ww->bus = 0;
+		ww->bus |= ww->par;
+		ww->ios |= ww->bus & 03777;
+		ios_decode(ww);
+	}
 }
 
 static void
 tp8(Whirlwind *ww)
 {
 	TRACE("TP8\n");
-// temporary
-if(ww->cs == 0) {
-printf("halt\n");
-ww->automatic = 0;
-}
+
+	if(SI & ww->cs_dec) {
+		ww->bus |= ww->ios;
+		ww->cr ^= ww->bus;
+		ww->vdefl = 0;
+		// TODO: drum
+	}
+	if(RC & ww->cs_dec)
+		ww->hdefl = 0;
 
 	if(cpo69_ar_rd_out_tp8 & ww->cs_dec)
 		ww->bus |= ww->ar;
@@ -618,6 +784,11 @@ ww->automatic = 0;
 		ww->bus |= ww->sc;
 	if(cpo10_pc_rd_out_tp8 & ww->cs_dec)
 		ww->bus |= ww->pc;
+	if(RC & ww->cs_dec)
+		if(ww->active_unit == &ww->scope.eu) {
+			ww->bus |= stor_rd_out(ww);
+			ww->ior |= ww->bus;
+		}
 
 	if(cpo73_ar_rd_in_tp8 & ww->cs_dec)
 		ww->ar |= ww->bus;
@@ -647,6 +818,8 @@ ww->automatic = 0;
 
 	if(cpo06_pc_clear_tp8_dly & ww->cs_dec)
 		ww->pc = 0;
+	if(RC & ww->cs_dec)
+		ww->par = 0;
 }
 
 static void
@@ -665,6 +838,103 @@ tpd_tick(Whirlwind *ww)
 	case 5: tp6(ww); break;
 	case 6: tp7(ww); break;
 	case 7: tp8(ww); break;
+	}
+}
+
+static void
+ms_tick(Whirlwind *ww)
+{
+	if(ww->ms_state == 0) return;
+	switch(ww->ms_state++) {
+	case 1: break;
+	case 2:
+		if(ww->ms_strobe)
+			ww->par |= ww->ms[ww->mar_buf];
+		ww->ms[ww->mar_buf] = 0;
+		break;
+	case 3: break;
+	case 4: break;
+	case 5:
+		ww->ms[ww->mar_buf] |= ww->par;
+		break;
+	case 6: break;
+	case 7: break;
+	case 8:
+		ww->ms_on = 0;
+		ww->ms_state = 0;
+		break;
+	}
+}
+
+static void
+io_cycle(Whirlwind *ww, int odd)
+{
+	if(ww->ios_dec & LG01) {
+		// point intensification delay
+		ww->iodc &= IODC(35);
+		if(!odd)
+			;	// TODO: sense light gun
+	}
+	if(ww->ios_dec & C03)
+		ww->iodc_start = 1;
+	if(ww->ios_dec & C11)
+		if(odd)		// hack, because this happens twice
+			intensify(ww);
+}
+
+static void
+ioc_reset_si(Whirlwind *ww)
+{
+}
+
+static void
+ioc_reset_rcrd(Whirlwind *ww)
+{
+	ww->interlock = 1;
+	// TODO: clear alarm
+	if(ww->ios_dec & C03)
+		ww->iodc_start = 1;
+}
+
+static void
+ioc_reset_rc(Whirlwind *ww)
+{
+	if(ww->ios_dec & LG01) {
+		ww->ior = 0;
+		ww->iocc &= ~2;
+	}
+	if(ww->ios_dec & C03)
+		// scope deflect delay
+		ww->iodc &= IODC(100);
+	ioc_reset_rcrd(ww);
+}
+
+static void
+ioc_reset_rd(Whirlwind *ww)
+{
+	ioc_reset_rcrd(ww);
+}
+
+static void
+io_tick(Whirlwind *ww)
+{
+	if(ww->iodc & 0100000) {
+		ww->iodc = 077777;
+		int iocc = ww->iocc;
+		ww->iocc++;
+		if(ww->iocc & 020) {
+			ww->iocc = 017;
+			if(!ww->interlock)
+				ww->stop_clock = 0;
+			ww->interlock = 0;
+// TODO: alarm control, sync completion
+		} else
+			io_cycle(ww, iocc&1);
+	}
+	if(ww->iodc_start) {
+		ww->iodc++;
+		if(ww->iodc & 0100000)
+			ww->iodc_start = 0;
 	}
 }
 
@@ -749,21 +1019,39 @@ po_step(Whirlwind *ww)
 	ww->po_pulse ^= 1;
 }
 
+// 2mc	0.5μs
 static void
-ae_tick(Whirlwind *ww)
+ae_hf(Whirlwind *ww)
+{
+	if(ww->div_ff) divide_step(ww);
+}
+
+// 1mc	1.0μs
+static void
+ae_lf(Whirlwind *ww)
 {
 	if(ww->sr_ff) sr_step(ww);
 	if(ww->sl_ff) sl_step(ww);
 	if(ww->mul_ff) mul_step(ww);
-	if(ww->div_ff) divide_step(ww);
 	if(ww->po_ff) po_step(ww);
+}
+
+// not quite sure how these things are reset
+static void
+ioclr(Whirlwind *ww)
+{
+	ww->interlock = 0;
+	ww->ios_dec = 0;
+	ww->active_unit = &nullUnit;
 }
 
 static void
 pwrclr(Whirlwind *ww)
 {
-	ww->automatic = 0;
+	ww->ms_on = 0;
 	ww->stop_clock = 0;
+	ww->automatic = 0;
+	ioclr(ww);
 	arith_clear(ww);
 
 	ww->tpd = rand() & 7;
@@ -803,7 +1091,17 @@ start_over(Whirlwind *ww, Word pc)
 	ww->cr = 0;	// not sure about this
 	arith_clear(ww);
 
+	ww->ms_on = 0;
+	ww->stop_clock = 0;
 	ww->automatic = 1;
+}
+
+void
+throttle(Whirlwind *ww)
+{
+	do
+		ww->realtime = gettime();
+	while(ww->realtime < ww->simtime);
 }
 
 void
@@ -825,10 +1123,9 @@ emu(Whirlwind *ww, Panel *panel)
 	pwrclr(ww);
 
 	inittime();
-//	ww->prevtime = ww->time = gettime();
-	ww->prevcyctm = ww->cyctm = gettime();
+	ww->simtime = gettime();
+	ww->scope.last = ww->simtime;
 	for(;;) {
-gettime();	// hack
 		psw1 = sw1;
 		sw0 = panel->sw0;
 		sw1 = panel->sw1;
@@ -932,33 +1229,93 @@ gettime();	// hack
 					ww->automatic = 1;
 				}
 			}
+			ww->stop_si1 = !!(sw1 & SW_SPARE1);
 
+			// 1μs interval
+			ms_tick(ww);
+			io_tick(ww);
 			if(ww->automatic) {
-				if(!ww->stop_clock) {
+				if(!ww->stop_clock && !ww->ms_on) {
 					tpd_tick(ww);
 					if(ww->tpd == 5 && ww->stop_tp5) {
 						ww->stop_tp5 = 0;
 						ww->automatic = 0;
 					}
 				}
-				ae_tick(ww);
+				ae_hf(ww);
+				ae_hf(ww);
+				ae_lf(ww);
 			} else if(pulse) {
 				if(ww->stop_clock) {
-					ae_tick(ww);
+					ae_hf(ww);
+					ae_lf(ww);
 				} else {
-					ae_tick(ww);
+					ae_hf(ww);
+					ae_lf(ww);
 					tpd_tick(ww);
 				}
 			}
+			// TODO: io clock
+			ww->simtime += 1000;
+
+			throttle(ww);
 		} else {
 			pwrclr(ww);
 
 			panel->lights0 = 0;
 			panel->lights1 = 0;
 			panel->lights2 = 0;
+
+			ww->simtime = gettime();
+		}
+		if(ww->scope.fd >= 0)
+			agescope(ww);
+	}
+}
+
+static void
+start_misc(Whirlwind *ww, ExUnit *eu)
+{
+	switch(ww->ios & 037) {
+	case 0:
+		ww->automatic = 0;
+		break;
+	case 1:
+		if(ww->stop_si1)
+			ww->automatic = 0;
+		break;
+	}
+}
+
+void
+handleio(Whirlwind *ww)
+{
+}
+
+static void
+readmem(Whirlwind *ww, FILE *f)
+{
+	char buf[100], *s;
+	Word a, w;
+
+	a = 0;
+	while(s = fgets(buf, 100, f)) {
+		while(*s) {
+			if(*s == ';')
+				break;
+			else if('0' <= *s && *s <= '7') {
+				w = strtol(s, &s, 8);
+				if(*s == ':') {
+					a = w;
+					s++;
+				} else if(a < 04000)
+					ww->ms[a++] = w;
+			} else
+				s++;
 		}
 	}
 }
+
 
 char *argv0;
 void
@@ -993,58 +1350,21 @@ main(int argc, char *argv[])
 	initGPIO();
 	memset(&panel, 0, sizeof(panel));
 	memset(ww, 0, sizeof(*ww));
+	ww->misc = nullUnit;
+	ww->misc.start = start_misc;
+	ww->scope.eu = nullUnit;
 
-/*
-//	ww->ms[040] = CA_ 0100;
-//	ww->ms[041] = CS_ 0100;
-//	ww->ms[042] = AD_ 0101;
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = TS_ 0102;
-	ww->ms[042] = CS_ 0102;
-	ww->ms[0100] = 0123456;
-	ww->ms[0101] = 0000777;
-*/
+	ww->scope.fd = dial(host, port);
+	if(ww->scope.fd < 0)
+		printf("can't open display\n");
+	nodelay(ww->scope.fd);
 
-/*
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = SA_ 0100;
-	ww->ms[0100] = 0100000;
-	ww->ms[060] = CA_ 0101;
-	ww->ms[061] = SA_ 0101;
-	ww->ms[0101] = 0077777;
-*/
-
-/*
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = SF_ 0101;
-	ww->ms[0100] = 0000456;
-*/
-
-/*
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = CL_ 0006;
-	ww->ms[042] = SL_ 0006;
-	ww->ms[043] = SR_ 0006;
-	ww->ms[0100] = 0011111;
-*/
-
-/*
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = MH_ 0101;
-	ww->ms[0100] = 0014236;
-	ww->ms[0101] = 0063531;
-*/
-
-/*
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = SR_ 0000;
-	ww->ms[0100] = 0114236;
-*/
-
-	ww->ms[040] = CA_ 0100;
-	ww->ms[041] = DV_ 0101;
-	ww->ms[0101] = 0014236;
-	ww->ms[0100] = 0063531;
+	FILE *mf;
+	mf = fopen("out.mem", "r");
+	if(mf) {
+		readmem(ww, mf);
+		fclose(mf);
+	}
 
 	ww->tg[0] = 0;
 	ww->tg[1] = 1;

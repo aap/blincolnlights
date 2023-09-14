@@ -1,3 +1,18 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef uint64_t u64;
+typedef uint32_t u32;
+typedef uint16_t u16;
+typedef uint8_t u8;
+typedef int64_t i64;
+typedef int32_t i32;
+typedef int16_t i16;
+typedef int8_t i8;
+#define nil NULL
+
 #define nelem(array) (sizeof(array)/sizeof(array[0]))
 
 void panic(const char *fmt, ...);
@@ -5,36 +20,6 @@ int hasinput(int fd);
 int dial(const char *host, int port);
 void nodelay(int fd);
 
-void initGPIO(void);
-
-enum {
-	KEY_START       = 0x20000,
-	KEY_STOP        = 0x10000,
-	KEY_CONT        = 0x08000,
-	KEY_EXAM        = 0x04000,
-	KEY_DEP         = 0x02000,
-	KEY_READIN      = 0x01000,
-	KEY_SPARE       = 0x00800,
-	KEY_MOD         = 0x00400,
-	KEY_SEL1        = 0x00200,
-	KEY_LOAD1       = 0x00100,
-	KEY_SEL2        = 0x00080,
-	KEY_LOAD2       = 0x00040,
-	SW_POWER        = 0x00020,
-	SW_SSTEP        = 0x00010,
-	SW_SINST        = 0x00008,
-	SW_REPEAT       = 0x00004,
-	SW_SPARE1       = 0x00002,
-	SW_SPARE2       = 0x00001,
-};
-
-typedef struct Panel Panel;
-struct Panel
-{
-	int sw0;
-	int sw1;
-	int lights0;
-	int lights1;
-	int lights2;
-};
-void *panelthread(void *arg);
+void inittime(void);
+u64 gettime(void);
+void nsleep(u64 ns);
