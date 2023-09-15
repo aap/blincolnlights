@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <ctype.h>
 
 #include <signal.h>
 #include <pthread.h>
@@ -104,4 +105,51 @@ nsleep(u64 ns)
 	tm.tv_sec = ns / (1000 * 1000 * 1000);
 	tm.tv_nsec = ns % (1000 * 1000 * 1000);
 	nanosleep(&tm, nil);
+}
+
+
+
+static int
+isdelim(char c)
+{
+	return c == '\0' || strchr(" \t\n;'\"", c) != nil;
+}
+
+/* have to free argv[0] and argv to clean up */
+char**
+split(char *line, int *pargc)
+{
+	int argc, n;
+	char **argv, *lp, delim;
+
+	n = strlen(line)+1;
+	// just allocate enough
+	lp = malloc(2*n);
+	argv = malloc(sizeof(char*)*n);
+	argc = 0;
+	for(; *line; line++) {
+		while(isspace(*line)) line++;
+		if(*line == '\0')
+			break;
+		argv[argc++] = lp;
+		if(*line == '"' || *line == '\'') {
+			delim = *line++;
+			while(*line && *line != delim) {
+				if(*line == '\\')
+					line++;
+				*lp++ = *line++;
+			}
+		} else {
+			while(!isdelim(*line)) {
+				if(*line == '\\')
+					line++;
+				*lp++ = *line++;
+			}
+		}
+		*lp++ = '\0';
+	}
+	if(pargc) *pargc = argc;
+	argv[argc++] = nil;
+
+	return argv;
 }

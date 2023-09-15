@@ -23,3 +23,5 @@ void nodelay(int fd);
 void inittime(void);
 u64 gettime(void);
 void nsleep(u64 ns);
+
+char **split(char *line, int *pargc);

@@ -72,6 +72,9 @@ int swdly = 1000;
 void
 setRow(int a, int l)
 {
+	// avoid ghosting
+	for(int i = 0; i < 18; i++)
+		outputPin(COLUMNS[i], 1);
 	setAddr(a);
 	for(int i = 0; i < 18; i++)
 		outputPin(COLUMNS[i], (~l>>i)&1);

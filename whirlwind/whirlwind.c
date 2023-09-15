@@ -10,6 +10,7 @@
 
 #include "args.h"
 #include "common.h"
+#include "panel_b18.h"
 
 typedef u16 Addr, Word;
 #define WORDMASK 0177777

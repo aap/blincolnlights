@@ -1,6 +1,7 @@
 #include "common.h"
 #include "pdp1.h"
 #include <unistd.h>
+#include <fcntl.h>
 
 #define B0 0400000
 #define B1 0200000
@@ -785,19 +786,22 @@ getwrd(int fd)
 }
 
 void
-readrim(PDP1 *pdp)
+readrim(PDP1 *pdp, int fd)
 {
 	int inst, wd;
 
-	if(pdp->r_fd < 0) {
+	if(fd < 0) {
 		fprintf(stderr, "no tape\n");
 		return;
 	}
 
+	// clear memory just to be safe
+	for(wd = 0; wd < MAXMEM; wd++)
+		pdp->core[wd] = 0;
 	for(;;) {
-		inst = getwrd(pdp->r_fd);
+		inst = getwrd(fd);
 		if((inst&0760000) == 0320000) {
-			wd = getwrd(pdp->r_fd);
+			wd = getwrd(fd);
 			pdp->core[inst&07777] = wd;
 		} else if((inst&0760000) == 0600000) {
 			printf("start: %04o\n", inst&07777);
@@ -806,5 +810,81 @@ readrim(PDP1 *pdp)
 			printf("rim botch: %06o\n", inst);
 			return;
 		}
+	}
+}
+
+void
+cli(PDP1 *pdp)
+{
+	static int timer = 0;
+	if(timer++ != 10000) return;
+	timer = 0;
+
+	if(!hasinput(0)) return;
+
+	char line[1024], *p;
+	int n;
+
+	n = read(0, line, sizeof(line));
+	if(n > 0 && n < sizeof(line)) {
+		line[n] = '\0';
+		if(p = strchr(line, '\r'), p) *p = '\0';
+		if(p = strchr(line, '\n'), p) *p = '\0';
+
+		char **args = split(line, &n);
+
+		if(n > 0) {
+			// reader
+			if(strcmp(args[0], "r") == 0) {
+				close(pdp->r_fd);
+				pdp->r_fd = -1;
+				if(args[1]) {
+					pdp->r_fd = open(args[1], O_RDONLY);
+					if(pdp->r_fd < 0)
+						printf("couldn't open %s\n", args[1]);
+				}
+			}
+			// punch
+			else if(strcmp(args[0], "p") == 0) {
+				close(pdp->p_fd);
+				pdp->p_fd = -1;
+				if(args[1]) {
+					pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC);
+					if(pdp->p_fd < 0)
+						printf("couldn't open %s\n", args[1]);
+				}
+			}
+			// load
+			else if(strcmp(args[0], "l") == 0) {
+				static char *rimfile = nil;
+				int fd;
+				if(args[1]) {
+					free(rimfile);
+					rimfile = strdup(args[1]);
+				}
+				if(rimfile) {
+					fd = open(rimfile, O_RDONLY);
+					if(fd < 0) {
+						printf("couldn't open %s\n", rimfile);
+					} else {
+						readrim(pdp, fd);
+						close(fd);
+					}
+				} else
+					printf("no filename\n");
+			}
+			// help
+			else if(strcmp(args[0], "?") == 0 ||
+			        strcmp(args[0], "help") == 0) {
+				printf("r                     unmount tape from reader\n");
+				printf("r filename            mount tape in reader\n");
+				printf("p                     unmount tape from punch\n");
+				printf("p filename            mount tape in punch\n");
+				printf("l filename            load memory from RIM-file\n");
+			}
+		}
+
+		free(args[0]);
+		free(args);
 	}
 }

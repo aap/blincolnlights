@@ -10,6 +10,7 @@
 
 #include "args.h"
 #include "common.h"
+#include "panel_b18.h"
 #include "Vpdp1panel.h"
 
 // hooked up to a PDP-1-style pty

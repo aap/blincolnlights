@@ -113,6 +113,7 @@ emu(PDP1 *pdp, Panel *panel)
 			panel->lights1 = 0;
 			panel->lights2 = 0;
 		}
+		cli(pdp);
 	}
 }
 

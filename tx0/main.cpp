@@ -8,6 +8,7 @@
 
 #include "args.h"
 #include "common.h"
+#include "panel_b18.h"
 #include "Vtx0panel.h"
 
 

@@ -140,3 +140,4 @@ void readin1(PDP1 *pdp);
 void readin2(PDP1 *pdp);
 void handleio(PDP1 *pdp);
 void throttle(PDP1 *pdp);
+void cli(PDP1 *pdp);
