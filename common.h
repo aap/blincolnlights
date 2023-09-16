@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -23,5 +24,6 @@ void nodelay(int fd);
 void inittime(void);
 u64 gettime(void);
 void nsleep(u64 ns);
+#define NEVER (~0)
 
 char **split(char *line, int *pargc);

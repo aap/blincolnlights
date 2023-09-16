@@ -24,8 +24,8 @@ emu(PDP1 *pdp, Panel *panel)
 	pwrclr(pdp);
 
 	inittime();
-	pdp->prevtime = pdp->time = gettime();
-	pdp->prevcyctm = pdp->cyctm = gettime();
+	pdp->simtime = gettime();
+	pdp->dpy_last = pdp->simtime;
 	for(;;) {
 		psw1 = sw1;
 		sw0 = panel->sw0;
@@ -104,15 +104,16 @@ emu(PDP1 *pdp, Panel *panel)
 				cycle(pdp);
 			throttle(pdp);
 			handleio(pdp);
-//			measuretime(pdp);
 		} else {
 			pwrclr(pdp);
-// BUG: we're not aging the display here
 
 			panel->lights0 = 0;
 			panel->lights1 = 0;
 			panel->lights2 = 0;
+
+			pdp->simtime = gettime();
 		}
+		agedisplay(pdp);
 		cli(pdp);
 	}
 }

@@ -22,9 +22,9 @@
 #define B16 0000002
 #define B17 0000001
 
-#define CYC(us) ((us)/5)
-#define RDLY CYC(2500)		// 400/s
-#define PDLY CYC(15873)		// 63/s
+#define US(us) ((us)*1000 - 1)
+#define RDLY US(2500)		// 400/s
+#define PDLY US(15873)		// 63/s
 
 static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
@@ -42,19 +42,20 @@ pwrclr(PDP1 *pdp)
 	pdp->rc = 0;
 	pdp->rby = 0;
 	pdp->rcl = 0;
-	pdp->r_state = 0;
+	pdp->r_time = NEVER;
 	pdp->rim_return = 0;
 	pdp->rim_cycle = 0;
 
 	pdp->punon = 0;
-	pdp->p_state = 0;
+	pdp->p_time = NEVER;
 
 	pdp->tbs = 0;
 	pdp->tbb = 0;
 	pdp->tyo = 0;
-	pdp->typ_state = 0;
+	pdp->typ_time = NEVER;
+	pdp->tyi_wait = 0;
 
-	pdp->dpy_state = 0;
+	pdp->dpy_time = NEVER;
 }
 
 static void
@@ -70,7 +71,7 @@ sc(PDP1 *pdp)
 	pdp->ir = 0;
 	pdp->pc = 0;
 	pdp->ioc = 1;
-	pdp->sbm = 0;
+	pdp->sbm = pdp->sbm_start_sw;
 
 	pdp->tyo = 0;
 }
@@ -82,7 +83,6 @@ spec(PDP1 *pdp)
 	pdp->run = 0;
 	if(pdp->start_sw || pdp->deposit_sw || pdp->examine_sw)
 		pdp->rim = 0;
-	pdp->sbm = 0;	// TODO
 
 	// SP1
 	pdp->run_enable = 1;
@@ -117,6 +117,7 @@ spec(PDP1 *pdp)
 		pdp->run = 1;
 
 	pdp->start_sw = 0;
+	pdp->sbm_start_sw = 0;
 	pdp->stop_sw = 0;
 	pdp->continue_sw = 0;
 	pdp->examine_sw = 0;
@@ -512,34 +513,9 @@ cycle(PDP1 *pdp)
 void
 throttle(PDP1 *pdp)
 {
-	// This isn't quite ideal yet
-	static int ncycle = 0;
-	ncycle++;
-	if(ncycle == 100) {
-		const int cyc = 4993;	// bit of slack
-		pdp->prevcyctm = pdp->cyctm;
-		do pdp->cyctm = gettime();
-		while(pdp->cyctm < pdp->prevcyctm + cyc*ncycle-pdp->debt);
-		if(pdp->cyctm-pdp->prevcyctm < cyc*ncycle)
-			pdp->debt = cyc*ncycle - (pdp->cyctm-pdp->prevcyctm);
-		else
-			pdp->debt = 0;
-		ncycle = 0;
-	}
-}
-
-void
-measuretime(PDP1 *pdp)
-{
-	static int ncycle = 0;
-	ncycle++;
-	if(ncycle == 100000) {
-		pdp->prevtime = pdp->time;
-		pdp->time = gettime();
-		float cyctime = (double)(pdp->time-pdp->prevtime) / ncycle;
-		printf("%f\n", cyctime);
-		ncycle = 0;
-	}
+	do
+		pdp->realtime = gettime();
+	while(pdp->realtime < pdp->simtime);
 }
 
 static void
@@ -562,7 +538,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 				pdp->rc = 1;
 				pdp->rcl = 1;
 			}
-			pdp->r_state = RDLY;
+			pdp->r_time = pdp->simtime + RDLY;
 			pdp->rb = 0;
 		}
 		break;
@@ -576,7 +552,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 			if(!pdp->tyo) {
 				pdp->tyo = 1;
 				pdp->tb |= IO & 077;
-				pdp->typ_state = CYC(25000);
+				pdp->typ_time = pdp->simtime + US(25000);
 			}
 		}
 		break;
@@ -595,7 +571,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		if(!pulse) {
 			pdp->pb = 0;
 			pdp->punon = 1;
-			pdp->p_state = PDLY;
+			pdp->p_time = pdp->simtime + PDLY;
 		} else {
 			pdp->pcp = nac;
 			if(dev == 00005)
@@ -613,7 +589,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
-			pdp->dpy_state = CYC(50);
+			pdp->dpy_time = pdp->simtime + US(50);
 		}
 		break;
 
@@ -636,6 +612,22 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		}
 		break;
 
+	case 054:	// lsm
+		if(!pulse) {
+			pdp->sbm = 0;
+		}
+		break;
+	case 055:	// esm
+		if(!pulse) {
+			pdp->sbm = 1;
+		}
+		break;
+	case 056:	// csb		ESB in schematics?!?
+		if(!pulse) {
+			// TODO
+		}
+		break;
+
 	default:
 		printf("unknown IOT %06o\n", MB);
 		break;
@@ -655,74 +647,67 @@ void
 handleio(PDP1 *pdp)
 {
 	/* Reader */
-	if(pdp->rcl && pdp->r_state) {
-		pdp->r_state--;
-		if(pdp->r_state == 0 && pdp->r_fd >= 0) {
-			u8 c;
-			pdp->r_state = RDLY;
-			if(read(pdp->r_fd, &c, 1) <= 0) {
-				close(pdp->r_fd);
-				pdp->r_fd = -1;
-				return;
+	if(pdp->rcl && pdp->r_time < pdp->simtime && pdp->r_fd >= 0) {
+		u8 c;
+		pdp->r_time = pdp->simtime + RDLY;
+		if(read(pdp->r_fd, &c, 1) <= 0) {
+			close(pdp->r_fd);
+			pdp->r_fd = -1;
+			return;
+		}
+		if(pdp->rc && (!pdp->rby || c&0200)) {
+			// STROBE PETR
+			pdp->rcl = 0;
+			pdp->rb |= c & (pdp->rby ? 077 : 0377);
+			// SHIFT RB
+			if(pdp->rc != 3) {
+				pdp->rb = (pdp->rb<<6) & WORDMASK;
+				pdp->rcl = 1;
 			}
-			if(pdp->rc && (!pdp->rby || c&0200)) {
-				// STROBE PETR
-				pdp->rcl = 0;
-				pdp->rb |= c & (pdp->rby ? 077 : 0377);
-				// SHIFT RB
-				if(pdp->rc != 3) {
-					pdp->rb = (pdp->rb<<6) & WORDMASK;
-					pdp->rcl = 1;
+			// CLR IO
+			if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
+			// -----
+			// +1 RC
+			if(pdp->rc == 3) {
+				// READER RETURN
+				if(pdp->rcp) pdp->ios = 1;
+				else pdp->rbs = 1;
+				if(pdp->rcp || pdp->rim) {
+					IO |= pdp->rb;
+					pdp->rbs = 0;
+					if(pdp->rim) pdp->rim_return = 2;
 				}
-				// CLR IO
-				if(pdp->rc == 3 && (pdp->rcp || pdp->rim)) IO = 0;
-				// -----
-				// +1 RC
-				if(pdp->rc == 3) {
-					// READER RETURN
-					if(pdp->rcp) pdp->ios = 1;
-					else pdp->rbs = 1;
-					if(pdp->rcp || pdp->rim) {
-						IO |= pdp->rb;
-						pdp->rbs = 0;
-						if(pdp->rim) pdp->rim_return = 2;
-					}
-				}
-				pdp->rc = (pdp->rc+1) & 3;
 			}
+			pdp->rc = (pdp->rc+1) & 3;
 		}
 	}
 
 	/* Punch */
-	if(pdp->punon && pdp->p_state) {
-		pdp->p_state--;
-		if(pdp->p_state == 0) {
-			if(pdp->p_fd >= 0) {
-				char c = pdp->pb;
-				write(pdp->p_fd, &c, 1);
-			}
-			if(pdp->pcp) pdp->ios = 1;
+	if(pdp->punon && pdp->p_time < pdp->simtime) {
+		pdp->p_time = NEVER;
+		if(pdp->p_fd >= 0) {
+			char c = pdp->pb;
+			write(pdp->p_fd, &c, 1);
 		}
+		if(pdp->pcp) pdp->ios = 1;
 	}
 
 	/* Typewriter */
-	if(pdp->typ_state) {
+	if(pdp->typ_time < pdp->simtime) {
 		// wrong timing
-		pdp->typ_state--;
-		if(pdp->typ_state == 0) {
-			if((pdp->tb&076) == 034)
-				pdp->tbb = pdp->tb & 1;
-			else if(pdp->typ_fd >= 0) {
-				char c = (pdp->tbb<<6) | pdp->tb;
-				write(pdp->typ_fd, &c, 1);
-			}
-			// this is really much more complicated
-			// and overlaps with the type-in logic
-			pdp->tyo = 0;
-			if(pdp->tcp) pdp->ios = 1;
+		pdp->typ_time = NEVER;
+		if((pdp->tb&076) == 034)
+			pdp->tbb = pdp->tb & 1;
+		else if(pdp->typ_fd >= 0) {
+			char c = (pdp->tbb<<6) | pdp->tb;
+			write(pdp->typ_fd, &c, 1);
 		}
+		// this is really much more complicated
+		// and overlaps with the type-in logic
+		pdp->tyo = 0;
+		if(pdp->tcp) pdp->ios = 1;
 	}
-	if(hasinput(pdp->typ_fd)) {
+	if(pdp->tyi_wait < pdp->simtime && hasinput(pdp->typ_fd)) {
 		char c;
 		if(read(pdp->typ_fd, &c, 1) <= 0) {
 			close(pdp->typ_fd);
@@ -736,35 +721,43 @@ handleio(PDP1 *pdp)
 		pdp->tbs = 1;
 		// TYPE SYNC
 		pdp->pf |= 040;
+
+		// PDP-1 has to keep up, so avoid clobbering TB
+		// not sure what a good timeout here is
+		pdp->tyi_wait = pdp->simtime + 25000000;
 	}
 
 	/* Display */
-	if(pdp->dpy_state) {
-		pdp->dpy_state--;
-		if(pdp->dpy_state == 0) {
-			if(pdp->dpy_fd >= 0) {
-				int x = pdp->dbx;
-				int y = pdp->dby;
-				if(x & 01000) x++;
-				if(y & 01000) y++;
-				x = (x+01000)&01777;
-				y = (y+01000)&01777;
-				int cmd = x | (y<<10) | (4<<20) | (pdp->dpy_dt<<23);
-				pdp->dpy_dt = 0;
-				write(pdp->dpy_fd, &cmd, sizeof(cmd));
-			}
-			if(pdp->dcp) pdp->ios = 1;
-		}
-	}
-	// keep track of simulated display time
-	if(pdp->dpy_dt+5 >= 512) {
+	if(pdp->dpy_time < pdp->simtime) {
+		pdp->dpy_time = NEVER;
 		if(pdp->dpy_fd >= 0) {
-			int cmd = pdp->dpy_dt<<23;
+			agedisplay(pdp);
+			int x = pdp->dbx;
+			int y = pdp->dby;
+			int dt = (pdp->simtime - pdp->dpy_last)/1000;
+			if(x & 01000) x++;
+			if(y & 01000) y++;
+			x = (x+01000)&01777;
+			y = (y+01000)&01777;
+			int cmd = x | (y<<10) | (4<<20) | (dt<<23);
+			pdp->dpy_last = pdp->simtime;
 			write(pdp->dpy_fd, &cmd, sizeof(cmd));
 		}
-		pdp->dpy_dt = 0;
+		if(pdp->dcp) pdp->ios = 1;
 	}
-	pdp->dpy_dt += 5;
+}
+
+void
+agedisplay(PDP1 *pdp)
+{
+	int cmd = 511<<23;
+	assert(pdp->dpy_last < pdp->simtime);
+	u64 dt = (pdp->simtime - pdp->dpy_last)/1000;
+	while(dt >= 511) { 
+		pdp->dpy_last += 511*1000;
+		write(pdp->dpy_fd, &cmd, sizeof(cmd));
+		dt = (pdp->simtime - pdp->dpy_last)/1000;
+	}
 }
 
 int

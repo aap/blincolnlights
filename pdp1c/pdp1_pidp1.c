@@ -22,8 +22,8 @@ emu(PDP1 *pdp, Panel *panel)
 	pwrclr(pdp);
 
 	inittime();
-	pdp->prevtime = pdp->time = gettime();
-	pdp->prevcyctm = pdp->cyctm = gettime();
+	pdp->simtime = gettime();
+	pdp->dpy_last = pdp->simtime;
 	for(;;) {
 		psw2 = sw2;
 		sw0 = panel->sw0;
@@ -67,8 +67,9 @@ emu(PDP1 *pdp, Panel *panel)
 			panel->lights6 = pdp->ir<<13 | pdp->ss<<6 | pdp->pf;
 
 
-			if(down & (KEY_START | KEY_CONT | KEY_EXAM | KEY_DEP)) {
-				pdp->start_sw = !!(down & KEY_START);
+			if(down & (KEY_START | KEY_START_UP | KEY_CONT | KEY_EXAM | KEY_DEP)) {
+				pdp->sbm_start_sw = !!(down & KEY_START_UP);
+				pdp->start_sw = !!(down & (KEY_START|KEY_START_UP));
 				pdp->continue_sw = !!(down & KEY_CONT);
 				pdp->examine_sw = !!(down & KEY_EXAM);
 				pdp->deposit_sw = !!(down & KEY_DEP);
@@ -93,10 +94,9 @@ emu(PDP1 *pdp, Panel *panel)
 				cycle(pdp);
 			throttle(pdp);
 			handleio(pdp);
-//			measuretime(pdp);
+			pdp->simtime += 5000;
 		} else {
 			pwrclr(pdp);
-// BUG: we're not aging the display here
 
 			panel->lights0 = 0;
 			panel->lights1 = 0;
@@ -105,7 +105,10 @@ emu(PDP1 *pdp, Panel *panel)
 			panel->lights4 = 0;
 			panel->lights5 = 0;
 			panel->lights6 = 0;
+
+			pdp->simtime = gettime();
 		}
+		agedisplay(pdp);
 		cli(pdp);
 	}
 }
@@ -151,10 +154,6 @@ main(int argc, char *argv[])
 
 	pthread_create(&th, NULL, panelthread, &panel);
 
-//	pdp->tw = 0777777;
-	pdp->tw = 0677721;	// minskytron
-	pdp->ss = 060;
-
 //	const char *tape = "../pdp1/maindec/maindec1_20.rim";
 //	const char *tape = "../pdp1/tapes/circle.rim";
 //	const char *tape = "../pdp1/tapes/munch.rim";
@@ -163,7 +162,6 @@ main(int argc, char *argv[])
 //	const char *tape = "../pdp1/tapes/ddt.rim";
 
 	pdp->r_fd = open(tape, O_RDONLY);
-//	readrim(pdp);
 
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC);
 

@@ -21,6 +21,7 @@ struct PDP1
 	Word tw;
 
 	int start_sw;
+	int sbm_start_sw;
 	int stop_sw;
 	int continue_sw;
 	int examine_sw;
@@ -45,18 +46,16 @@ struct PDP1
 	int single_inst_sw;
 
 	int cychack;	// for cycle entry past TP0
-	int ncycle;
-	u64 prevtime, time;	// measure time
-	u64 prevcyctm, cyctm;	// cycle time
-	int debt;
+	u64 simtime;
+	u64 realtime;
 
 	// display
 	int dcp;
 	int dbx, dby;
 	// simulation
 	int dpy_fd;
-	int dpy_state;
-	int dpy_dt;		// in microseconds
+	u64 dpy_time;
+	u64 dpy_last;
 
 	// reader
 	int rcp;
@@ -67,7 +66,7 @@ struct PDP1
 	int rbs;
 	// simulation
 	int r_fd;
-	int r_state;
+	u64 r_time;
 	int rim_return;
 	int rim_cycle;		// hack to trigger read-in SP1
 
@@ -76,7 +75,7 @@ struct PDP1
 	int pb;
 	int punon;
 	// simulation
-	int p_state;
+	int p_time;
 	int p_fd;
 
 	// typewriter
@@ -87,7 +86,8 @@ struct PDP1
 	int tyo;
 	// simulation
 	int typ_fd;
-	int typ_state;
+	u64 typ_time;
+	u64 tyi_wait;
 };
 
 #define IR pdp->ir
@@ -139,5 +139,6 @@ void start_readin(PDP1 *pdp);
 void readin1(PDP1 *pdp);
 void readin2(PDP1 *pdp);
 void handleio(PDP1 *pdp);
+void agedisplay(PDP1 *pdp);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
