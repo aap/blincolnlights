@@ -104,6 +104,7 @@ emu(PDP1 *pdp, Panel *panel)
 				cycle(pdp);
 			throttle(pdp);
 			handleio(pdp);
+			pdp->simtime += 5000;
 		} else {
 			pwrclr(pdp);
 
