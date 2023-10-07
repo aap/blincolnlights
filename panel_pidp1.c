@@ -54,7 +54,7 @@ struct GPIO
 	u32 pudclk0;
 	u32 pudclk1;
 	u32 res__a0;	// a0
-	u32 space[17];
+	u32 space[16];
 
 	// PI 4 only
 	u32 pup_pdn_cntrl_reg0;	// e4
@@ -279,8 +279,6 @@ initGPIO(void)
 	// only pi4
 	gpio->pup_pdn_cntrl_reg0 = 0;
 	gpio->pup_pdn_cntrl_reg1 = 0;
-	gpio->pup_pdn_cntrl_reg2 = 0;
-	gpio->pup_pdn_cntrl_reg3 = 0;
 	for(int i = 0; i < nelem(COLUMNS); i++)
 		(&gpio->pup_pdn_cntrl_reg0)[COLUMNS[i]/16] |= 1 << 2*(COLUMNS[i]%16);
 
