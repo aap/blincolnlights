@@ -124,8 +124,8 @@ split(char *line, int *pargc)
 
 	n = strlen(line)+1;
 	// just allocate enough
-	lp = malloc(2*n);
-	argv = malloc(sizeof(char*)*n);
+	lp = (char*)malloc(2*n);
+	argv = (char**)malloc(sizeof(char*)*n);
 	argc = 0;
 	for(; *line; line++) {
 		while(isspace(*line)) line++;

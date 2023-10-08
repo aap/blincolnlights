@@ -38,11 +38,11 @@ The C simulation only has the display and reader so far.
 # Running it
 
 ## TX-0
-As root, run `mkptyfl /tmp/fl` to create a pty,
+Run `mkptyfl /tmp/fl` to create a pty,
 then `obj_dir/tx0sim` to run the TX-0 simulator.
 
 ## PDP-1
-As root, run `mkptyfio /tmp/ty` to create a pty,
+Run `mkptyfio /tmp/ty` to create a pty,
 then `obj_dir/pdp1sim` in the `pdp1` directory
 or `./pdp1` in the `pdp1c` directory to run the PDP-1 simulator.
 

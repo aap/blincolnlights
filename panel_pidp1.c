@@ -1,94 +1,16 @@
 #include "common.h"
+#include "gpio.h"
 #include "panel_pidp1.h"
 
 #include <signal.h>
-#include <pthread.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-
-
-typedef struct GPIO GPIO;
-struct GPIO
-{
-	u32 fsel0;	// 00
-	u32 fsel1;
-	u32 fsel2;
-	u32 fsel3;
-	u32 fsel4;	// 10
-	u32 fsel5;
-	u32 res__18;
-	u32 set0;
-	u32 set1;	// 20
-	u32 res__24;
-	u32 clr0;
-	u32 clr1;
-	u32 res__30;	// 30
-	u32 lev0;
-	u32 lev1;
-	u32 res__3c;
-	u32 eds0;	// 40
-	u32 eds1;
-	u32 res__48;
-	u32 ren0;
-	u32 ren1;	// 50
-	u32 res__54;
-	u32 fen0;
-	u32 fen1;
-	u32 res__60;	// 60
-	u32 hen0;
-	u32 hen1;
-	u32 res__6c;
-	u32 len0;	// 70
-	u32 len1;
-	u32 res__78;
-	u32 aren0;
-	u32 aren1;	// 80
-	u32 res__84;
-	u32 afen0;
-	u32 afen1;
-	u32 res__90;	// 90
-
-	// not PI 4
-	u32 pud;
-	u32 pudclk0;
-	u32 pudclk1;
-	u32 res__a0;	// a0
-	u32 space[16];
-
-	// PI 4 only
-	u32 pup_pdn_cntrl_reg0;	// e4
-	u32 pup_pdn_cntrl_reg1;
-	u32 pup_pdn_cntrl_reg2;
-	u32 pup_pdn_cntrl_reg3;
-};
-volatile GPIO *gpio;
-
-// 10 pin settings per FSEL register
-#define INP_GPIO(pin) (&gpio->fsel0)[(pin)/10] &= ~(7<<(((pin)%10)*3))
-#define OUT_GPIO(pin) (&gpio->fsel0)[(pin)/10] |=  (1<<(((pin)%10)*3))
-
-void
-opengpio(void)
-{
-	int fd;
-
-	fd = open("/dev/gpiomem", O_RDWR);
-	if(fd < 0) {
-		fprintf(stderr, "no gpio\n");
-		exit(1);
-	}
-
-	gpio = (GPIO*)mmap(0, 4096, PROT_READ+PROT_WRITE, MAP_SHARED, fd, 0);
-}
+#include <pthread.h>
 
 
 int ADDR[] = {4, 17, 27, 22};
 int COLUMNS[] = {26, 19, 13, 6, 5, 11, 9, 10,
 	18, 23, 24, 25, 8, 7, 12, 16, 20, 21};
 u32 addrmsk, colmsk;
-
-#define SET_GPIO(pin, val) if(val) gpio->set0 = 1<<pin; else gpio->clr0 = 1<<pin;
 
 void
 inRow(void)
@@ -234,7 +156,7 @@ lampthread(void *arg)
 	}
 }
 
-int doexit;
+volatile int doexit;
 void*
 panelthread(void *arg)
 {
