@@ -32,21 +32,21 @@ emu(PDP1 *pdp, Panel *panel)
 		sw1 = panel->sw1;
 		down = sw1 & ~psw1;
 
-		if(down) {
-			if(down & KEY_SEL1)
-				sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_SEL2)
-				sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_LOAD1) {
-				if(sw1 & KEY_MOD)
-					pdp->ss = sw0 & 077;
-				else
-					pdp->ta = sw0 & ADDRMASK;
-			}
-			if(down & KEY_LOAD2) pdp->tw = sw0;
-		}
-
 		if(sw1 & SW_POWER) {
+			if(down) {
+				if(down & KEY_SEL1)
+					sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
+				if(down & KEY_SEL2)
+					sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
+				if(down & KEY_LOAD1) {
+					if(sw1 & KEY_MOD)
+						pdp->ss = sw0 & 077;
+					else
+						pdp->ta = sw0 & ADDRMASK;
+				}
+				if(down & KEY_LOAD2) pdp->tw = sw0;
+			}
+
 			indicators = 0;
 			if(sw1 & KEY_SPARE) {
 				indicators |= pdp->ioc<<9;
@@ -164,17 +164,17 @@ main(int argc, char *argv[])
 	pdp->tw = 0677721;	// minskytron
 	pdp->ss = 060;
 
-//	const char *tape = "../pdp1/maindec/maindec1_20.rim";
-//	const char *tape = "../pdp1/tapes/circle.rim";
-//	const char *tape = "../pdp1/tapes/munch.rim";
-	const char *tape = "../pdp1/tapes/minskytron.rim";
-//	const char *tape = "../pdp1/tapes/spacewar2B_5.rim";
-//	const char *tape = "../pdp1/tapes/ddt.rim";
+//	const char *tape = "maindec/maindec1_20.rim";
+//	const char *tape = "tapes/circle.rim";
+//	const char *tape = "tapes/munch.rim";
+	const char *tape = "tapes/minskytron.rim";
+//	const char *tape = "tapes/spacewar2B_5.rim";
+//	const char *tape = "tapes/ddt.rim";
 
 	pdp->r_fd = open(tape, O_RDONLY);
 //	readrim(pdp);
 
-	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC);
+	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC, 0644);
 
 	pdp->typ_fd = open("/tmp/typ", O_RDWR);
 	if(pdp->typ_fd < 0)

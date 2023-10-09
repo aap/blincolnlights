@@ -842,7 +842,7 @@ cli(PDP1 *pdp)
 				close(pdp->p_fd);
 				pdp->p_fd = -1;
 				if(args[1]) {
-					pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC);
+					pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC, 0644);
 					if(pdp->p_fd < 0)
 						printf("couldn't open %s\n", args[1]);
 				}

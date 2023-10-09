@@ -1132,20 +1132,20 @@ emu(Whirlwind *ww, Panel *panel)
 		sw1 = panel->sw1;
 		down = sw1 & ~psw1;
 
-		if(down) {
-			if(down & KEY_SEL1)
-				sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_SEL2)
-				sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
-			if(down & KEY_LOAD1) {
-				// ??
-			}
-			if(down & KEY_LOAD2) {
-				// ??
-			}
-		}
-
 		if(sw1 & SW_POWER) {
+			if(down) {
+				if(down & KEY_SEL1)
+					sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
+				if(down & KEY_SEL2)
+					sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
+				if(down & KEY_LOAD1) {
+					// ??
+				}
+				if(down & KEY_LOAD2) {
+					// ??
+				}
+			}
+
 			indicators = 0;
 			if(sw1 & KEY_SPARE) {
 				indicators |= ww->stop_clock<<9;

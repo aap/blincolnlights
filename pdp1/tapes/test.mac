@@ -1,0 +1,10 @@
+0/
+
+define foo a,b
+a,	b
+terminate
+
+xxx,
+	foo xyz,2
+
+start xxx

@@ -1,0 +1,18 @@
+	lio a
+	spi
+	hlt
+	spi i
+	skp i
+	hlt
+
+	lio b
+	spi i
+	hlt
+	spi
+	skp i
+	hlt
+
+	hlt
+
+a,	000123
+b,	400123
