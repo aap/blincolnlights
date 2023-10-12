@@ -414,13 +414,21 @@ add_to_sc(Whirlwind *ww)
 	ww->sc = (ww->sc+1) & 077;
 }
 
-//#define TRACE printf
+//#define TRACE(tp) trace(ww, tp)
 #define TRACE(...)
+
+static void
+trace(Whirlwind *ww, const char *tp)
+{
+	printf("%s  ", tp);
+	printf("PC/%04o AC/%06o BR/%06o AR/%06o PAR/%06o SC/%02o SRC/%d\n",
+		ww->pc, ww->ac, ww->br, ww->ar, ww->par, ww->sc, ww->src);
+}
 
 static void
 tp1(Whirlwind *ww)
 {
-	TRACE("TP1\n");
+	TRACE("TP1");
 
 	if(cpo40_par_rd_out_tp1 & ww->cs_dec)
 		ww->bus |= ww->par;
@@ -493,7 +501,7 @@ tp1(Whirlwind *ww)
 static void
 tp2(Whirlwind *ww)
 {
-	TRACE("TP2\n");
+	TRACE("TP2");
 
 	if(RC & ww->cs_dec) {
 		// TODO: Sense BC#3
@@ -515,8 +523,6 @@ tp2(Whirlwind *ww)
 		add(ww, ww->ar);
 	if(cpo80_subtract_tp2 & ww->cs_dec)
 		add(ww, ~ww->ar);
-	if(cpo04_add_to_sc_tp27 & ww->cs_dec)
-		add_to_sc(ww);
 	if(cpo35_multiply_tp2 & ww->cs_dec) {
 		ww->mul_ff = 1;
 		ww->sc = 022;
@@ -532,12 +538,14 @@ tp2(Whirlwind *ww)
 	if(cpo31_shift_right_tp2 & ww->cs_dec)
 		if(!(ww->sc & 040))
 			ww->sr_ff = 1;
+	if(cpo04_add_to_sc_tp27 & ww->cs_dec)
+		add_to_sc(ww);
 }
 
 static void
 tp3(Whirlwind *ww)
 {
-	TRACE("TP3\n");
+	TRACE("TP3");
 
 	if(RC & ww->cs_dec) {
 		ioc_reset_rc(ww);
@@ -553,8 +561,8 @@ tp3(Whirlwind *ww)
 		carry(ww, ww->ac_cry);
 		ww->ac_cry = 0;
 	}
-	if(cpo52_roundoff_via_src_tp3 && ww->cs_dec)
-		if((ww->br & 0100000) && ww->src) carry(ww, 1);
+	if(cpo52_roundoff_via_src_tp3 & ww->cs_dec)
+		if((ww->br & 0100000) && !ww->src) carry(ww, 1);
 	if(cpo51_ac_clear_tp3 & ww->cs_dec)
 		ww->ac = 0;
 	if(cpo81_ms_rd_par_clear_tp3 & ww->cs_dec) {
@@ -567,7 +575,7 @@ tp3(Whirlwind *ww)
 static void
 tp4(Whirlwind *ww)
 {
-	TRACE("TP4\n");
+	TRACE("TP4");
 
 	if(cpo56_transfer_check_tp47 & ww->cs_dec)
 		if(ww->cr) cr_alarm(ww);
@@ -616,7 +624,7 @@ tp4(Whirlwind *ww)
 static void
 tp5(Whirlwind *ww)
 {
-	TRACE("TP5\n");
+	TRACE("TP5");
 
 	if(cpo28_par_rd_out_tp5 & ww->cs_dec)
 		ww->bus |= ww->par;
@@ -626,14 +634,14 @@ tp5(Whirlwind *ww)
 		ss_rd_in(ww);
 	if(cpo02_sc_src_rd_in_tp5 & ww->cs_dec) {
 		ww->sc ^= ww->bus&037;
-		ww->src |= (ww->bus>>10)&1;
+		ww->src |= (ww->bus>>9)&1;
 	}
 }
 
 static void
 tp6(Whirlwind *ww)
 {
-	TRACE("TP6\n");
+	TRACE("TP6");
 
 	// IO, no CPO numbers known
 	if(SI & ww->cs_dec) {
@@ -687,7 +695,7 @@ tp6(Whirlwind *ww)
 static void
 tp7(Whirlwind *ww)
 {
-	TRACE("TP7\n");
+	TRACE("TP7");
 
 	if(cpo56_transfer_check_tp47 & ww->cs_dec)
 		if(ww->cr) cr_alarm(ww);
@@ -766,7 +774,7 @@ ww->stop_clock = 1;
 static void
 tp8(Whirlwind *ww)
 {
-	TRACE("TP8\n");
+	TRACE("TP8");
 
 	if(SI & ww->cs_dec) {
 		ww->bus |= ww->ios;
