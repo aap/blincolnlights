@@ -45,6 +45,11 @@ struct PDP1
 	int single_cyc_sw;
 	int single_inst_sw;
 
+	// type 10, multiply-divide
+	int muldiv_sw;
+	int scr;
+	int smb, srm;
+
 	int cychack;	// for cycle entry past TP0
 	u64 simtime;
 	u64 realtime;
@@ -119,8 +124,10 @@ struct PDP1
 #define IR_ISP (IR == 023)
 #define IR_SAD (IR == 024)
 #define IR_SAS (IR == 025)
-#define IR_MUS (IR == 026)
-#define IR_DIS (IR == 027)
+#define IR_MUS (!pdp->muldiv_sw && (IR == 026))
+#define IR_DIS (!pdp->muldiv_sw && (IR == 027))
+#define IR_MUL (pdp->muldiv_sw && (IR == 026))
+#define IR_DIV (pdp->muldiv_sw && (IR == 027))
 #define IR_JMP (IR == 030)
 #define IR_JSP (IR == 031)
 #define IR_SKIP (IR == 032)

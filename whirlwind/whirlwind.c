@@ -233,7 +233,7 @@ agescope(Whirlwind *ww)
 {
 	Scope *s = &ww->scope;
 	int cmd = 511<<23;
-	assert(s->last < ww->simtime);
+	assert(s->last <= ww->simtime);
 	u64 dt = (ww->simtime - s->last)/1000;
 	while(dt >= 511) {
 		s->last += 511*1000;

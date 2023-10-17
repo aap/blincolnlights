@@ -167,12 +167,13 @@ main(int argc, char *argv[])
 //	const char *tape = "maindec/maindec1_20.rim";
 //	const char *tape = "tapes/circle.rim";
 //	const char *tape = "tapes/munch.rim";
-	const char *tape = "tapes/minskytron.rim";
+//	const char *tape = "tapes/minskytron.rim";
 //	const char *tape = "tapes/spacewar2B_5.rim";
 //	const char *tape = "tapes/ddt.rim";
+	const char *tape = "tapes/dpys5.rim";
+	pdp->muldiv_sw = 1;
 
 	pdp->r_fd = open(tape, O_RDONLY);
-//	readrim(pdp);
 
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC, 0644);
 

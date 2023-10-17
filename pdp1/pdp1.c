@@ -76,6 +76,37 @@ sc(PDP1 *pdp)
 	pdp->tyo = 0;
 }
 
+static void
+mul_shift(PDP1 *pdp)
+{
+	int ac = AC>>1;
+	IO = (AC&B17)<<17 | IO>>1;
+	AC = ac;
+}
+static void
+div_shift(PDP1 *pdp)
+{
+	int ac = (AC&~B0)<<1 | (IO&B0)>>17;
+	IO = (IO&~B0)<<1 | (~AC&B0)>>17;
+	AC = ac;
+}
+
+static void
+carry(PDP1 *pdp)
+{
+	AC += (~AC & MB)<<1;
+	if(AC & 01000000) AC++;
+	AC &= WORDMASK;
+}
+
+static void
+inc_ac(PDP1 *pdp)
+{
+	if(AC == 0777776) AC = 0;
+	else if(AC == 0777777) AC = 1;
+	else AC++;
+}
+
 void
 spec(PDP1 *pdp)
 {
@@ -169,6 +200,131 @@ readin2(PDP1 *pdp)
 		pdp->rim = 0;
 		PC |= MB & ADDRMASK;
 		pdp->cychack = 1;	// actually TP0 should work too
+	}
+}
+
+static void
+clrmd(PDP1 *pdp)
+{
+	pdp->scr = 0;
+	pdp->smb = 0;
+	pdp->srm = 0;
+}
+
+static void
+multiply(PDP1 *pdp)
+{
+	int lastlong;
+	pdp->simtime += 150;
+	goto start;
+	do {
+		if(lastlong = (IO & B17)) {
+			// MDP-3
+			AC ^= MB;
+			pdp->simtime += 200;
+
+			// MDP-4
+			carry(pdp);
+			pdp->simtime += 500;
+		}
+
+		// MDP-5
+		pdp->scr = (pdp->scr+1) & 037;
+		mul_shift(pdp);
+		pdp->simtime += 150;
+
+	start:
+		// MDP-6
+		// if(scr==021) MD_RESTART
+		// but we run synchronously
+		;
+	} while(pdp->scr != 022);
+	// last cycle is asynchronous
+	pdp->simtime -= lastlong*(200 + 500) + 150;
+
+	// MDP-11
+	if(pdp->srm != pdp->smb && !(AC == 0 && IO == 0)) {
+		AC ^= WORDMASK;
+		IO ^= WORDMASK;
+	}
+}
+
+static void
+divide(PDP1 *pdp)
+{
+	int done;
+	pdp->simtime += 150;
+	goto start;
+	do {
+		// MDP-1
+		if(!(AC & B0))
+			MB ^= WORDMASK;
+		div_shift(pdp);
+		pdp->simtime += 150;
+
+		if(!(IO & B17)) {
+			// MDP-2
+			inc_ac(pdp);
+			pdp->simtime += 500;
+		}
+
+	start:
+		// MDP-3
+		AC ^= MB;
+		pdp->simtime += 200;
+
+		// MDP-4
+		if(AC == 0777777)
+			AC ^= WORDMASK;
+		else
+			carry(pdp);
+		// delayed 0.05us
+		if(MB & B0)
+			MB ^= WORDMASK;
+		pdp->simtime += 500;
+
+		// MDP-5
+		done = pdp->scr==022 || pdp->scr==0 && !(AC&B0);
+		pdp->scr = (pdp->scr+1) & 037;
+	} while(!done);
+
+	// MDP-7
+	AC ^= MB;
+	if(pdp->scr & 2) PC = (PC+1) & ADDRMASK;
+	pdp->simtime += 150;
+
+	// MDP-8
+	if(AC == 0777777)
+		AC ^= WORDMASK;
+	else
+		carry(pdp);
+	pdp->simtime += 500;
+
+	// MDP-9
+	if(pdp->scr & 020)
+		AC >>= 1;
+	// MD_RESTART, but we run synchronously
+	// so don't add to simtime from now on
+
+	// MDP-10
+	if(!(pdp->scr & 020) && pdp->srm ||
+	   (pdp->scr & 020) && IO != 0 && pdp->srm != pdp->smb)
+		IO ^= WORDMASK;
+	if(AC != 0 && pdp->srm)
+		AC ^= WORDMASK;
+	MB = 0;
+
+	// swap AC and IO
+	if(pdp->scr & 020) {
+		// MDP-12
+		MB |= IO;
+
+		// MDP-13
+		int t = MB; MB = AC; AC = t;
+		IO = 0;
+
+		// MDP-14
+		IO |= MB;
 	}
 }
 
@@ -333,6 +489,7 @@ cycle0(PDP1 *pdp)
 	   pdp->single_inst_sw && !pdp->df1 && pdp->ir >= 030 ||
 	   !pdp->run_enable)
 		pdp->run = 0;
+	clrmd(pdp);
 
 	// TP9A
 	if(IR_SHRO && (MB & B14)) shro(pdp);
@@ -347,6 +504,7 @@ cycle0(PDP1 *pdp)
 		else if(!pdp->ioh) pdp->ios = 0;
 		if(pdp->ioc) iot(pdp, 1);
 	}
+	if(MB & B0) pdp->smb = 1;
 	}
 }
 
@@ -376,6 +534,7 @@ defer(PDP1 *pdp)
 
 		// TP9
 		if(IR_JSP || IR_JMP) PC |= MB & ADDRMASK;
+		clrmd(pdp);
 	}
 	pdp->core[MA] = MB;	// approximate
 	if(IR_INCORR ||
@@ -391,6 +550,7 @@ defer(PDP1 *pdp)
 		if(pdp->ir >= 030) pdp->cyc = 0;
 	}
 	pdp->df2 = 0;
+	if(MB & B0) pdp->smb = 1;
 }
 
 static void
@@ -406,23 +566,26 @@ cycle1(PDP1 *pdp)
 	else
 		MA |= MB & ADDRMASK;
 	// EMA stuff
-	if(IR_DIS) {
-		int ac = (AC&~B0)<<1 | (IO&B0)>>17;
-		IO = (IO&~B0)<<1 | (~AC&B0)>>17;
-		AC = ac;
-	}
+	if(IR_DIS)
+		div_shift(pdp);
 
 	case 1:
 	// TP1
 	// emc = 0
 
 	// TP2
-	if(IR_DIS & !(IO & B17)) {
+	if(IR_DIS && !(IO & B17)) {
 		if(AC == 0777777) AC = 1;
 		else AC++;
 	}
+	if(IR_MUL) {
+		MB = AC;
+		IO = 0;
+	}
 
 	// TP3
+	if(IR_MUL)
+		IO |= MB;
 	MB = 0;
 	if(IR_XCT) {
 		pdp->cyc = 0;
@@ -448,16 +611,10 @@ cycle1(PDP1 *pdp)
 		AC ^= MB;
 
 	// TP6
-	if(IR_ADD || IR_SUB || IR_DIS || IR_MUS && (IO & B17)) {
-		AC += (~AC & MB)<<1;
-		if(AC & 01000000) AC++;
-		AC &= WORDMASK;
-	}
-	if(IR_IDX || IR_ISP) {
-		if(AC == 0777776) AC = 0;
-		else if(AC == 0777777) AC = 1;
-		else AC++;
-	}
+	if(IR_ADD || IR_SUB || IR_DIS || IR_MUS && (IO & B17))
+		carry(pdp);
+	if(IR_IDX || IR_ISP)
+		inc_ac(pdp);
 
 	// TP7
 	if(IR_DAC || IR_IDX || IR_ISP) MB = AC;
@@ -467,11 +624,8 @@ cycle1(PDP1 *pdp)
 	if(IR_DIO) MB = IO;
 
 	// TP8
-	if(IR_MUS) {
-		int ac = AC>>1;
-		IO = (AC&B17)<<17 | IO>>1;
-		AC = ac;
-	}
+	if(IR_MUS)
+		mul_shift(pdp);
 	if(IR_CALJDA) AC |= PC, PC = 0;
 	if(IR_SAS && AC==0 || IR_SAD && AC!=0 ||
 	   IR_ISP && !(AC & B0))
@@ -480,7 +634,7 @@ cycle1(PDP1 *pdp)
 	// TP9
 	pdp->core[MA] = MB;	// approximate
 	if(IR_CALJDA) PC |= MA;
-	if(IR_SUB) AC ^= WORDMASK;
+	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_SAD || IR_SAS) AC ^= MB;
 	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
 	if(IR_INCORR ||
@@ -488,6 +642,7 @@ cycle1(PDP1 *pdp)
 	   pdp->single_inst_sw ||
 	   !pdp->run_enable)
 		pdp->run = 0;
+	clrmd(pdp);
 
 	// TP9A
 	if((IR_ADD || IR_DIS) && AC == 0777777) AC = 0;
@@ -498,6 +653,32 @@ cycle1(PDP1 *pdp)
 	pdp->ov2 = 0;
 	pdp->cyc = 0;
 	if(pdp->run) MA = 0;
+	if(MB & B0) pdp->smb = 1;
+	if(IR_MUL) {
+		if(MB & B0)
+			MB ^= WORDMASK;
+		if(IO & B0) {
+			IO ^= WORDMASK;
+			pdp->srm = 1;
+		}
+		pdp->scr |= 1;
+		AC = 0;
+		multiply(pdp);
+		// without delay to TP0
+		pdp->simtime -= 200;
+	}
+	if(IR_DIV) {
+		if(!(MB & B0))
+			MB ^= WORDMASK;
+		if(AC & B0) {
+			AC ^= WORDMASK;
+			IO ^= WORDMASK;
+			pdp->srm = 1;
+		}
+		divide(pdp);
+		// without delay to TP0
+		pdp->simtime -= 200;
+	}
 	}
 }
 
@@ -751,9 +932,9 @@ void
 agedisplay(PDP1 *pdp)
 {
 	int cmd = 511<<23;
-	assert(pdp->dpy_last < pdp->simtime);
+	assert(pdp->dpy_last <= pdp->simtime);
 	u64 dt = (pdp->simtime - pdp->dpy_last)/1000;
-	while(dt >= 511) { 
+	while(dt >= 511) {
 		pdp->dpy_last += 511*1000;
 		write(pdp->dpy_fd, &cmd, sizeof(cmd));
 		dt = (pdp->simtime - pdp->dpy_last)/1000;
@@ -874,6 +1055,11 @@ cli(PDP1 *pdp)
 				printf("p                     unmount tape from punch\n");
 				printf("p filename            mount tape in punch\n");
 				printf("l filename            load memory from RIM-file\n");
+				printf("muldiv                toggle type 10 mul-div option\n");
+			}
+			else if(strcmp(args[0], "muldiv") == 0) {
+				pdp->muldiv_sw = !pdp->muldiv_sw;
+				printf("mul-div now %s\n", pdp->muldiv_sw ? "on" : "off");
 			}
 		}
 

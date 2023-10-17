@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include <signal.h>
+
 void
 emu(PDP1 *pdp, Panel *panel)
 {
@@ -151,15 +153,18 @@ main(int argc, char *argv[])
 	if(pdp->dpy_fd < 0)
 		printf("can't open display\n");
 	nodelay(pdp->dpy_fd);
+	signal(SIGPIPE, SIG_IGN);
 
 	pthread_create(&th, NULL, panelthread, &panel);
 
 //	const char *tape = "maindec/maindec1_20.rim";
 //	const char *tape = "tapes/circle.rim";
 //	const char *tape = "tapes/munch.rim";
-	const char *tape = "tapes/minskytron.rim";
+//	const char *tape = "tapes/minskytron.rim";
 //	const char *tape = "tapes/spacewar2B_5.rim";
 //	const char *tape = "tapes/ddt.rim";
+	const char *tape = "tapes/dpys5.rim";
+	pdp->muldiv_sw = 1;
 
 	pdp->r_fd = open(tape, O_RDONLY);
 

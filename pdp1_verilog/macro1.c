@@ -403,6 +403,7 @@ SYM_T permanent_symbols[] =
   { DEFFIX, "CKS",    0720033 },
 	// aap
   { DEFFIX, "DPY",    0730007 },
+  { DEFFIX, "XX",     0760400 },
 };      /* End-of-Symbols for Permanent Symbol Table                          */
 
 /* Global variables                                                           */
