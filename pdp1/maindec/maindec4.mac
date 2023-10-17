@@ -1,0 +1,511 @@
+/ multiply divide test
+
+define setup a,b
+	law i b
+	dac a
+terminate
+
+define count a,b
+	isp a
+	jmp b
+terminate
+
+define swap
+	rcl 77
+	rcl 77
+terminate
+
+define move a,b
+	lio a
+	dio b
+terminate
+
+define load a,b
+	lio (b
+	dio a
+terminate
+
+define pri2
+	cli
+	rcl 7
+	rcl 77	/ swap
+	rcl 77
+	sza i
+	law 20	/ law char r0
+	rcl 77	/ swap
+	rcl 77
+	tyo
+terminate
+
+define return
+	lio (77
+	tyo
+terminate
+
+define type
+	rcl 77
+	tyo
+	rcl 77
+	tyo
+	rcl 77
+	tyo
+terminate
+
+define space
+	cli
+	tyo
+terminate
+
+0/
+
+	jmp ess
+	jmp dss
+opt,	0
+	dap opx
+	setup aaa,6
+	lac opt
+	ral 7
+	dac opt
+	and (7
+	sza 1
+	law char r0
+	swap
+	tyo
+	count aaa,opt 4
+	lio (36
+	tyo
+opx,	jmp .
+
+et1,	dap et3
+	lac src
+	rar 77
+	szf 5
+	jmp eta
+	pri2
+	pri2
+eta,	lio (36
+	tyo
+	lac ac
+	jda opt
+	lac io
+	jda opt
+	lac mem
+	jda opt
+	return
+et3,	jmp .
+
+ran,	dap rn		/ random number
+	lio ra1
+	lac ra2
+	rcr 771
+	xor ra1
+	lio ra2
+	dac ra2
+	dio ra1
+	rcl 7
+	add ra2
+	xor ra1
+	dac mem
+	dac me1
+rn,	jmp .
+
+a,	0
+	dap ret
+	lac a
+	dzm smb
+	dzm srm
+	dzm src
+	spa
+	cma
+	swap
+	lac a
+	spa
+	idx srm
+	idx src
+	clf 5
+	dio io
+	lac mem
+	spa
+	idx smb
+	lac mem
+	spa
+	cma
+	dac mem
+	dzm ac
+	szf 2
+	jsp et1
+b,	lio io
+	rir 1
+	spi i
+	jmp . 4
+	lac ac
+	add mem
+	dac ac
+	idx src
+	lac ac
+	lio io
+	scr 1
+	and (377777
+	dac ac
+	dio io
+	szf 2
+	jsp et1
+	lac src
+	sas (22
+	jmp b
+	idx src
+	stf 5
+	lac io
+	ior ac
+	sza i
+	jmp ret-5
+	lac srm
+	xor smb
+	sza		/test for sign
+	jmp c
+	szf 2
+	jsp et1
+	lac ac
+	lio io
+	clf 5
+ret,	jmp .
+
+c,	lac ac
+	cma
+	dac ac
+	lac io
+	cma
+	dac io
+	jmp ret-5
+
+d,	0
+	dio io
+	dap dre		/divide
+	clf 5
+	clf 4
+	dzm smb
+	dzm srm
+	dzm src
+	lac mem
+	spa		/if mb minus set smb
+	idx smb
+	lac mem
+	sma
+	cma		/comp mb if minus
+	dac mem
+	lac d
+	spa		/if ac minus set srm
+	idx srm
+	lac d
+	dac ac
+	lac d
+	sma		/if ac minus
+	jmp . 6		/comp ac io
+	cma
+	dac ac
+	lac io
+	cma
+	dac io
+	szf 2
+	jsp et1
+	jmp e
+f,	idx src
+	lac mem
+	lio ac
+	spi i
+	cma
+	dac mem		/+ ac comp mb
+	lac ac
+	lio io
+	xor (400000
+	rcl 1
+	dac ac
+	dio io		/divide shift
+	rir 1
+	spi i		/if io 17, zero
+	idx ac		/increment ac
+e,	lac ac		/ones comp add
+	add mem		/=pad, carry or clear
+	dac ac
+	lac mem
+	spa
+	cma		/comp mb, if minus
+	dac mem
+	szf 2
+	jsp et1
+	lac src
+	sad (22
+	jmp g
+	sza
+	jmp f		/f = mdp-1 routine
+	lac ac
+	spa
+	jmp f
+	jmp g
+g,	idx src
+	lac ac
+	add mem
+	dac ac
+	law 2
+	and src
+	sza i
+	jmp eee
+	law 20
+	and src
+	sza i
+	jmp . 5
+	lac ac
+	sar 1		/shift mdp-9
+	and (377777	/make ac positive
+	dac ac
+h,	lac ac
+	sza i
+	jmp j
+	lac srm
+	sza i
+	jmp j
+	lac ac
+	cma
+	dac ac
+j,	lac io
+	sza i
+	jmp k
+	law 20
+	and src
+	sza i
+	jmp k
+	lac srm		/spq level
+	xor smb
+	sza i
+	jmp k
+	lac io
+	cma		/if(io not +0).scr 1
+	dac io		/spq ,comp io
+k,	law 20
+	and src
+	sza
+	jmp l
+	lac srm
+	sza i
+	jmp l
+	lac io		/if scr 0=0 .srm =1
+	cma		/comp io
+	dac io
+l,	lio io
+	idx dre
+	dio mem
+	lac ac
+	swap
+	dac ac
+	dio io
+	stf 5
+	szf 2
+	jsp et1
+	clf 5
+dre,	jmp .
+
+eee,	move me1,mem
+	move ra2,io
+	lac ra1
+	dac ac
+	jmp dre-4
+bb,	dap bb2
+	clf 2		/mul inst
+	move ra1,ac
+fm4,	0
+	lac ac
+	mul mem
+	dac ac1
+	dio io1
+	lac ac
+fm2,	0
+	sas ac1
+	stf 2
+	swap
+	sas io1
+	stf 2
+	szf i 2
+bb2,	jmp .
+	szs 30
+	jmp bb2
+	move me1,mem
+fm5,	0
+	move ra1,ac
+	lac (flex mul
+	szf 5
+	lac (flex mus
+	jda inf		/print ac,io,mem
+	lac ac
+fm3,	0
+	jsp ans		/print mach ans
+	jmp bb2
+dd,	load ra1,257431
+	load ra2,671713
+	return
+	szs i 40
+	jsp ran
+	szs i 10
+	jsp cc		/divide
+	szs i 20
+	jsp bb		/multiply
+	jmp .-6
+sd,	dap sd2		/simulate dis
+	lac ac
+	lio io
+	xor (400000
+	rcl 1		/dis shift
+	dio io
+	rir 1
+	spi		/if io 17 a one
+	cma		/comp AC
+	spi i		/add 1 to AC
+	add (1		/if io17 is zero
+	add mem		/mb pad ,carry
+	spi
+	cma		/if io 17 a one
+	add (777777	/comp ac
+	dac ac		/make -0 = +0
+	szf 2
+	jsp et1
+sd2,	jmp .
+dss,	stf 5		/start for dis,mus
+	load fd2,jsp sd
+	dio fd3		/setup for dis
+	load fm2,jsp sm
+	dio fm3		/setup for mus
+	load fm4,jsp ss2
+	dio fm5
+	jmp dd		/start program
+ess,	clf 7		/start for mul,div
+	load fd2,jda d
+	dio fd3
+	load fm2,jda a
+	dio fm3		/setup for mul,div
+	load fm4,dzm io
+	dio fm5
+	jmp dd
+ss2,	dap . 3
+	move ra2,io
+	jmp .		/setup io for mus
+
+sm,	dap sm9		/simulate mus
+	lac ac
+	lio io
+	rir 1
+	spi
+	add mem		/io 17 a one,add
+	ril 1
+	rcr 1
+	and (377777
+	dac ac
+	dio io
+	szf 2
+	jsp et1
+sm9,	jmp .
+
+inf,	0
+	dap ing
+	lac .-2
+	type
+	space
+	lac (flex ac
+	type
+	lac (flex =
+	type
+	space
+	lac ac
+	jda opt
+	lac (flex  io
+	type
+	space
+	lac (flex =
+	type
+	space
+	lac io
+	jda opt		/print contents IO
+	space
+	lac (flex mem
+	type
+	space
+	lac (flex =
+	type
+	space
+	lac mem
+	jda opt
+	/repeat 2,return
+	return
+	return
+ing,	jmp .
+cc,	dap cc2
+	move mem,me1
+	clf 2
+	lac ra1
+	clf 3
+	dac ac
+	lio ra2
+	dio io
+	div mem
+	stf 3
+	dac ac1
+	dio io1
+	lac ac		/to div simulator
+	lio io
+fd2,	0
+	clf 3
+	lac ac		/does div = div simulator
+	sas ac1
+	stf 2
+	lac io
+	sas io1
+	stf 2
+	szf 3
+	jmp . 3
+	szf i 2
+	jmp cc2		/no error
+	szs 30
+	jmp cc2		/reject error ss 3
+	move me1,mem
+	move ra1,ac
+	move ra2,io
+	lac (flex div
+	szf 5
+	lac (flex dis
+	jda inf
+	lac ac		/print from simulator
+	lio io
+fd3,	0
+	nop
+	jsp ans
+cc2,	jmp .
+ans,	dap an
+	lac (flex ans
+	return
+	lio (35
+	tyo
+	move ac1,ac
+	move io1,io
+	move me1,mem
+	jda inf
+	lio (34
+	tyo
+an,	jmp .
+
+	constants
+
+
+/hack for macro1.c
+1046/
+aaa,	0
+src,	0
+ac,	0
+io,	0
+mem,	0
+ra1,	0
+ra2,	0
+me1,	0
+smb,	0
+srm,	0
+ac1,	0
+io1,	0
+
+start	0
