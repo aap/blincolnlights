@@ -29,6 +29,19 @@
 static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
 
+static void
+readmem(PDP1 *pdp)
+{
+	MB |= pdp->core[(pdp->ema|MA)%MAXMEM];
+	pdp->core[(pdp->ema|MA)%MAXMEM] = 0;
+}
+
+static void
+writemem(PDP1 *pdp)
+{
+	pdp->core[(pdp->ema|MA)%MAXMEM] = MB;
+}
+
 void
 pwrclr(PDP1 *pdp)
 {
@@ -46,6 +59,11 @@ pwrclr(PDP1 *pdp)
 	pdp->rim_return = 0;
 	pdp->rim_cycle = 0;
 
+	pdp->emc = rand() & 1;
+	pdp->exd = rand() & 1;
+	pdp->ema = rand() & EXTMASK;
+	pdp->epc = rand() & EXTMASK;
+
 	pdp->punon = 0;
 	pdp->p_time = NEVER;
 
@@ -56,24 +74,6 @@ pwrclr(PDP1 *pdp)
 	pdp->tyi_wait = 0;
 
 	pdp->dpy_time = NEVER;
-}
-
-static void
-sc(PDP1 *pdp)
-{
-	pdp->df1 = 0;
-	pdp->df2 = 0;
-	pdp->ov1 = 0;
-	pdp->ov2 = 0;
-	pdp->ihs = 0;
-	pdp->ios = 0;
-	pdp->ioh = 0;
-	pdp->ir = 0;
-	pdp->pc = 0;
-	pdp->ioc = 1;
-	pdp->sbm = pdp->sbm_start_sw;
-
-	pdp->tyo = 0;
 }
 
 static void
@@ -107,6 +107,78 @@ inc_ac(PDP1 *pdp)
 	else AC++;
 }
 
+static void
+clr_ma(PDP1 *pdp)
+{
+	MA = 0;
+	pdp->ema = 0;
+}
+static void
+mb_to_ma(PDP1 *pdp)
+{
+	MA |= MB & ADDRMASK;
+	if(pdp->emc)
+		pdp->ema |= MB & EXTMASK;
+	else
+		pdp->ema |= pdp->epc;
+}
+static void
+pc_to_ma(PDP1 *pdp)
+{
+	MA |= PC;
+	pdp->ema |= pdp->epc;
+}
+
+
+static void
+clr_pc(PDP1 *pdp)
+{
+	PC = 0;
+	pdp->epc = 0;
+}
+static void
+mb_to_pc(PDP1 *pdp)
+{
+	PC |= MB & ADDRMASK;
+	if(pdp->emc)
+		pdp->epc |= MB & EXTMASK;
+	else
+		pdp->epc |= pdp->ema;
+}
+static void
+ma_to_pc(PDP1 *pdp)
+{
+	PC |= MA;
+	pdp->epc |= pdp->ema;
+}
+static void
+pc_inc(PDP1 *pdp)
+{
+	PC = (PC+1) & ADDRMASK;
+}
+
+static void
+sc(PDP1 *pdp)
+{
+	pdp->df1 = 0;
+	pdp->df2 = 0;
+	pdp->ov1 = 0;
+	pdp->ov2 = 0;
+	pdp->ihs = 0;
+	pdp->ios = 0;
+	pdp->ioh = 0;
+	pdp->ir = 0;
+	clr_pc(pdp);
+	pdp->ioc = 1;
+	pdp->sbm = pdp->sbm_start_sw;
+
+	pdp->emc = 0;
+	pdp->exd = 0;
+
+	pdp->tyo = 0;
+}
+
+
 void
 spec(PDP1 *pdp)
 {
@@ -117,7 +189,7 @@ spec(PDP1 *pdp)
 
 	// SP1
 	pdp->run_enable = 1;
-	MA = 0;
+	clr_ma(pdp);
 	if(pdp->start_sw)
 		pdp->cyc = 0;
 	if(pdp->deposit_sw)
@@ -126,8 +198,10 @@ spec(PDP1 *pdp)
 		sc(pdp);
 
 	// SP2
-	if(pdp->start_sw || pdp->deposit_sw || pdp->examine_sw)
+	if(pdp->start_sw || pdp->deposit_sw || pdp->examine_sw) {
 		PC |= pdp->ta;
+		pdp->epc |= pdp->eta;
+	}
 	if(pdp->deposit_sw || pdp->examine_sw || pdp->rim)
 		pdp->cyc = 1;
 	if(pdp->examine_sw)
@@ -139,9 +213,11 @@ spec(PDP1 *pdp)
 
 	// SP3
 	if(pdp->deposit_sw || pdp->examine_sw) {
-		MA |= PC;
+		pc_to_ma(pdp);
 		pdp->cychack = 1;
 	}
+	if(pdp->start_sw && pdp->extend_sw)
+		pdp->exd = 1;
 
 	// SP4
 	if(pdp->start_sw || pdp->continue_sw)
@@ -172,7 +248,7 @@ readin1(PDP1 *pdp)
 
 	// SP1
 	pdp->run_enable = 1;
-	MA = 0;
+	clr_ma(pdp);
 	if(pdp->rim) {	// guaranteed
 		MB = 0;
 		sc(pdp);
@@ -189,8 +265,9 @@ readin2(PDP1 *pdp)
 
 	// SP3
 	IR |= MB>>13;
-	MA |= MB & ADDRMASK;
-	// extend: exd = 1
+	mb_to_ma(pdp);
+	if(pdp->extend_sw)
+		pdp->exd = 1;
 
 	// SP4
 	if(IR_DIO) iot_pulse(pdp, 1, 2, 0);
@@ -198,7 +275,7 @@ readin2(PDP1 *pdp)
 		pdp->run = 1;
 		pdp->cyc = 0;
 		pdp->rim = 0;
-		PC |= MB & ADDRMASK;
+		mb_to_pc(pdp);
 		pdp->cychack = 1;	// actually TP0 should work too
 	}
 }
@@ -290,7 +367,7 @@ divide(PDP1 *pdp)
 
 	// MDP-7
 	AC ^= MB;
-	if(pdp->scr & 2) PC = (PC+1) & ADDRMASK;
+	if(pdp->scr & 2) pc_inc(pdp);
 	pdp->simtime += 150;
 
 	// MDP-8
@@ -403,16 +480,16 @@ cycle0(PDP1 *pdp)
 	default:
 	// TP0
 	if(IR_SHRO && (MB & B12)) shro(pdp);
-	MA |= PC;
+	pc_to_ma(pdp);
 
 	case 1:
 	// TP1
 	if(IR_SHRO && (MB & B11)) shro(pdp);
-	// emc = 0
+	pdp->emc = 0;
 
 	// TP2
 	if(IR_SHRO && (MB & B10)) shro(pdp);
-	PC = (PC+1) & ADDRMASK;
+	pc_inc(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
 
@@ -422,8 +499,7 @@ cycle0(PDP1 *pdp)
 
 	case 4:
 	// TP4
-	MB |= pdp->core[MA];
-	pdp->core[MA] = 0;
+	readmem(pdp);
 	IR = 0;
 
 	// TP5
@@ -452,8 +528,8 @@ cycle0(PDP1 *pdp)
 
 	// TP8
 	if(!pdp->df1) {
-		if(IR_JSP) AC |= PC, PC = 0;
-		if(IR_JMP) PC = 0;
+		if(IR_JSP) AC |= PC, clr_pc(pdp);
+		if(IR_JMP) clr_pc(pdp);
 	}
 	if(IR_SKIP) {
 		int skip = 0;
@@ -465,7 +541,7 @@ cycle0(PDP1 *pdp)
 		if((MB&070) && !(pdp->ss&decflg(MB>>3))) skip = 1;
 		if((MB&007) && !(pdp->pf&decflg(MB))) skip = 1;
 		if(MB & B5) skip = !skip;
-		if(skip) PC = (PC+1) & ADDRMASK;
+		if(skip) pc_inc(pdp);
 	}
 	if(IR_SHRO && (MB & B16)) shro(pdp);
 	if(IR_LAW) AC |= MB & 0007777;
@@ -477,8 +553,8 @@ cycle0(PDP1 *pdp)
 	}
 
 	// TP9
-	pdp->core[MA] = MB;	// approximate
-	if(!pdp->df1 && (IR_JMP || IR_JSP)) PC |= MB & ADDRMASK;
+	writemem(pdp);		// approximate
+	if(!pdp->df1 && (IR_JMP || IR_JSP)) mb_to_pc(pdp);
 	if(IR_SKIP && (MB & B8)) pdp->ov1 = 0;
 	if(IR_SHRO && (MB & B15)) shro(pdp);
 	if(IR_OPR && (MB & B8) || IR_LAW && (MB & B5)) AC ^= WORDMASK;
@@ -496,7 +572,7 @@ cycle0(PDP1 *pdp)
 	if(IR_IOT && pdp->ioh) PC = (PC-1) & ADDRMASK, pdp->df1 = pdp->df2 = 0;
 
 	// TP10
-	if(pdp->run) MA = 0;
+	if(pdp->run) clr_ma(pdp);
 	if(pdp->df1 || pdp->ir < 030) pdp->cyc = 1;
 	if(IR_SHRO && (MB & B13)) shro(pdp);
 	if(IR_IOT) {
@@ -512,16 +588,21 @@ static void
 defer(PDP1 *pdp)
 {
 	// TP0
-	MA |= MB & ADDRMASK;
+	mb_to_ma(pdp);
+
+	// TP1
+	pdp->emc = 0;
 
 	// TP3
 	MB = 0;
 
 	// TP4
-	MB |= pdp->core[MA];
-	pdp->core[MA] = 0;
+	readmem(pdp);
 
-	if(MB & B5) {
+	// TP5
+	if(pdp->exd) pdp->emc = 1;
+
+	if(MB & B5 && !pdp->exd) {
 		// TP6
 		pdp->df2 = 1;
 	} else {
@@ -529,14 +610,14 @@ defer(PDP1 *pdp)
 		if(IR_JSP) AC = 0;
 
 		// TP8
-		if(IR_JSP) AC |= PC, PC = 0;
-		if(IR_JMP) PC = 0;
+		if(IR_JSP) AC |= PC, clr_pc(pdp);
+		if(IR_JMP) clr_pc(pdp);
 
 		// TP9
-		if(IR_JSP || IR_JMP) PC |= MB & ADDRMASK;
+		if(IR_JSP || IR_JMP) mb_to_pc(pdp);
 		clrmd(pdp);
 	}
-	pdp->core[MA] = MB;	// approximate
+	writemem(pdp);		// approximate
 	if(IR_INCORR ||
 	   pdp->single_cyc_sw ||
 	   pdp->single_inst_sw && !pdp->df2 && pdp->ir >= 030 ||
@@ -544,7 +625,7 @@ defer(PDP1 *pdp)
 		pdp->run = 0;
 
 	// TP10
-	if(pdp->run) MA = 0;
+	if(pdp->run) clr_ma(pdp);
 	if(!pdp->df2) {
 		pdp->df1 = 0;
 		if(pdp->ir >= 030) pdp->cyc = 0;
@@ -564,14 +645,14 @@ cycle1(PDP1 *pdp)
 	if(IR_CALJDA && !(MB & B5))
 		MA |= 0100;
 	else
-		MA |= MB & ADDRMASK;
+		mb_to_ma(pdp);
 	// EMA stuff
 	if(IR_DIS)
 		div_shift(pdp);
 
 	case 1:
 	// TP1
-	// emc = 0
+	pdp->emc = 0;
 
 	// TP2
 	if(IR_DIS && !(IO & B17)) {
@@ -594,8 +675,7 @@ cycle1(PDP1 *pdp)
 	}
 
 	// TP4
-	MB |= pdp->core[MA];
-	pdp->core[MA] = 0;
+	readmem(pdp);
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_LIO) IO = 0;
 
@@ -626,14 +706,14 @@ cycle1(PDP1 *pdp)
 	// TP8
 	if(IR_MUS)
 		mul_shift(pdp);
-	if(IR_CALJDA) AC |= PC, PC = 0;
+	if(IR_CALJDA) AC |= PC, clr_pc(pdp);
 	if(IR_SAS && AC==0 || IR_SAD && AC!=0 ||
 	   IR_ISP && !(AC & B0))
-		PC = (PC+1) & ADDRMASK;
+		pc_inc(pdp);
 
 	// TP9
-	pdp->core[MA] = MB;	// approximate
-	if(IR_CALJDA) PC |= MA;
+	writemem(pdp);		// approximate
+	if(IR_CALJDA) ma_to_pc(pdp);
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_SAD || IR_SAS) AC ^= MB;
 	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
@@ -646,13 +726,13 @@ cycle1(PDP1 *pdp)
 
 	// TP9A
 	if((IR_ADD || IR_DIS) && AC == 0777777) AC = 0;
-	if(IR_CALJDA) PC = (PC+1) & ADDRMASK;
+	if(IR_CALJDA) pc_inc(pdp);
 
 	// TP10
 	if(pdp->ov2) pdp->ov1 = 1;
 	pdp->ov2 = 0;
 	pdp->cyc = 0;
-	if(pdp->run) MA = 0;
+	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
 	if(IR_MUL) {
 		if(MB & B0)
@@ -806,6 +886,12 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 	case 056:	// csb		ESB in schematics?!?
 		if(!pulse) {
 			// TODO
+		}
+		break;
+
+	case 074:	// lem/eem
+		if(pulse) {
+			pdp->exd = !!(MB & B6);
 		}
 		break;
 

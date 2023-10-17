@@ -3,7 +3,9 @@ typedef u32 Word;
 typedef u16 Addr;
 #define WORDMASK 0777777
 #define ADDRMASK 07777
-#define MAXMEM (4*1024)
+#define EXTMASK 0170000
+//#define MAXMEM (4*1024)
+#define MAXMEM (64*1024)
 
 typedef struct PDP1 PDP1;
 
@@ -49,6 +51,14 @@ struct PDP1
 	int muldiv_sw;
 	int scr;
 	int smb, srm;
+
+	// type 15, memory extension
+	int extend_sw;
+	int emc;
+	int exd;
+	Word eta;
+	Word ema;
+	Word epc;
 
 	int cychack;	// for cycle entry past TP0
 	u64 simtime;

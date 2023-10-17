@@ -34,9 +34,9 @@ emu(PDP1 *pdp, Panel *panel)
 		down = sw2 & ~psw2;
 
 		if(sw0 & SW_POWER) {
-			// TODO: SW_EXTEND
-			// TODO: MA EXT
-			pdp->ta = sw0 & 07777;
+			pdp->extend_sw = !!(sw0 & SW_EXTEND);
+			pdp->eta = sw0 & EXTMASK;
+			pdp->ta = sw0 & ADDRMASK;
 			pdp->tw = sw1;
 			pdp->ss = (sw2>>10) & 077;
 			pdp->single_cyc_sw = !!(sw2 & SW_SSTEP);
@@ -52,7 +52,7 @@ emu(PDP1 *pdp, Panel *panel)
 			if(pdp->ov1) l5 |= L5_OV1;
 			if(pdp->rim) l5 |= L5_RIM;
 			if(pdp->sbm) l5 |= L5_SBM;
-//			if(pdp->ext) l5 |= L5_EXT;
+			if(pdp->exd) l5 |= L5_EXD;
 			if(pdp->ioh) l5 |= L5_IOH;
 			if(pdp->ioc) l5 |= L5_IOC;
 			if(pdp->ios) l5 |= L5_IOS;
@@ -60,8 +60,8 @@ emu(PDP1 *pdp, Panel *panel)
 			if(pdp->single_cyc_sw) l5 |= L5_SSTEP;
 			if(pdp->single_inst_sw) l5 |= L5_SINST;
 
-			panel->lights0 = PC;
-			panel->lights1 = MA;
+			panel->lights0 = pdp->epc | PC;
+			panel->lights1 = pdp->ema | MA;
 			panel->lights2 = MB;
 			panel->lights3 = AC;
 			panel->lights4 = IO;
