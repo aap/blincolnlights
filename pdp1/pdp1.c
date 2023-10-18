@@ -642,9 +642,11 @@ cycle1(PDP1 *pdp)
 	switch(hack) {
 	default:
 	// TP0
-	if(IR_CALJDA && !(MB & B5))
+	if(IR_CALJDA && !(MB & B5)) {
 		MA |= 0100;
-	else
+		if(!pdp->exd)
+			pdp->ema |= pdp->epc;
+	} else
 		mb_to_ma(pdp);
 	// EMA stuff
 	if(IR_DIS)
