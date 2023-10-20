@@ -26,6 +26,11 @@
 #define RDLY US(2500)		// 400/s
 #define PDLY US(15873)		// 63/s
 
+#define RD_CHAN 1
+#define PUN_CHAN 6
+#define TTI_CHAN 7
+#define TTO_CHAN 8
+
 static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
 
@@ -52,17 +57,44 @@ pwrclr(PDP1 *pdp)
 	AC = rand() & 0777777;
 	IO = rand() & 0777777;
 
+	pdp->cyc = rand() & 1;
+	pdp->df1 = rand() & 1;
+	pdp->df2 = rand() & 1;
+	pdp->bc = rand() & 3;
+	pdp->ov1 = rand() & 1;
+	pdp->ov2 = rand() & 1;
+	pdp->rim = rand() & 1;
+	pdp->sbm = rand() & 1;
+	pdp->ioc = rand() & 1;
+	pdp->ihs = rand() & 1;
+	pdp->ios = rand() & 1;
+	pdp->ioh = rand() & 1;
+	pdp->pf = rand() & 077;
+
+	if(pdp->sbs16) {
+		pdp->b4 = rand() & 0177777;
+		pdp->b3 = rand() & 0177777;
+		pdp->b2 = rand() & 0177777;
+		pdp->b1 = rand() & 0177777;
+	} else {
+		pdp->b4 = rand() & 1;
+		pdp->b3 = rand() & 1;
+		pdp->b2 = rand() & 1;
+		pdp->b1 = rand() & 1;
+	}
+	pdp->req = 0;
+
+	pdp->emc = rand() & 1;
+	pdp->exd = rand() & 1;
+	pdp->ema = rand() & EXTMASK;
+	pdp->epc = rand() & EXTMASK;
+
 	pdp->rc = 0;
 	pdp->rby = 0;
 	pdp->rcl = 0;
 	pdp->r_time = NEVER;
 	pdp->rim_return = 0;
 	pdp->rim_cycle = 0;
-
-	pdp->emc = rand() & 1;
-	pdp->exd = rand() & 1;
-	pdp->ema = rand() & EXTMASK;
-	pdp->epc = rand() & EXTMASK;
 
 	pdp->punon = 0;
 	pdp->p_time = NEVER;
@@ -98,13 +130,17 @@ carry(PDP1 *pdp)
 	if(AC & 01000000) AC++;
 	AC &= WORDMASK;
 }
-
 static void
 inc_ac(PDP1 *pdp)
 {
 	if(AC == 0777776) AC = 0;
 	else if(AC == 0777777) AC = 1;
 	else AC++;
+}
+static void
+pc_to_ac(PDP1 *pdp)
+{
+	AC |= pdp->ov1<<17 | pdp->exd<<16 | pdp->epc | PC;
 }
 
 static void
@@ -156,28 +192,72 @@ pc_inc(PDP1 *pdp)
 {
 	PC = (PC+1) & ADDRMASK;
 }
+static void
+inst_cancel(PDP1 *pdp)
+{
+	PC = (PC-1) & ADDRMASK;
+	pdp->df1 = 0;
+	pdp->df2 = 0;
+}
+
+static void
+sbs_calc_req(PDP1 *pdp)
+{
+	pdp->req = (pdp->b3 & ~pdp->b3+1) & (pdp->b4 & ~pdp->b4+1)-1;
+}
+static void
+clr_sbs(PDP1 *pdp)
+{
+	pdp->b4 = 0;
+	pdp->b3 = 0;
+	if(pdp->sbs16)
+		pdp->b2 = 0;
+	sbs_calc_req(pdp);
+}
+static void
+hold_break(PDP1 *pdp)
+{
+	pdp->b4 |= pdp->req;
+	if(!pdp->sbs16)
+		pdp->b2 = 0;
+	sbs_calc_req(pdp);
+}
+static void
+sbs_sync(PDP1 *pdp)
+{
+	pdp->b3 |= pdp->b2;
+	sbs_calc_req(pdp);
+}
+static void
+sbs_reset_sync(PDP1 *pdp)
+{
+	if(pdp->sbs16)
+		pdp->b2 &= ~pdp->b3;
+}
 
 static void
 sc(PDP1 *pdp)
 {
 	pdp->df1 = 0;
 	pdp->df2 = 0;
+	pdp->bc = 0;
 	pdp->ov1 = 0;
 	pdp->ov2 = 0;
 	pdp->ihs = 0;
+	pdp->ioc = 1;
 	pdp->ios = 0;
 	pdp->ioh = 0;
 	pdp->ir = 0;
 	clr_pc(pdp);
-	pdp->ioc = 1;
 	pdp->sbm = pdp->sbm_start_sw;
+	clr_sbs(pdp);
+	pdp->b2 = 0;
 
 	pdp->emc = 0;
 	pdp->exd = 0;
 
 	pdp->tyo = 0;
 }
-
 
 void
 spec(PDP1 *pdp)
@@ -471,6 +551,11 @@ shro(PDP1 *pdp)
 	IO = io;
 }
 
+#define CY0_INST_DONE (!pdp->df1 && pdp->ir >= 030)
+#define CY0_MIDBRK_PERMIT (pdp->ir < 030)
+#define DF_INST_DONE (!pdp->df2 && pdp->ir >= 030)
+#define DF_MIDBRK_PERMIT (pdp->ir < 030 || (IR_JMP || IR_JSP) && pdp->df2)
+
 static void
 cycle0(PDP1 *pdp)
 {
@@ -499,6 +584,7 @@ cycle0(PDP1 *pdp)
 
 	case 4:
 	// TP4
+	sbs_sync(pdp);
 	readmem(pdp);
 	IR = 0;
 
@@ -528,7 +614,7 @@ cycle0(PDP1 *pdp)
 
 	// TP8
 	if(!pdp->df1) {
-		if(IR_JSP) AC |= PC, clr_pc(pdp);
+		if(IR_JSP) pc_to_ac(pdp), clr_pc(pdp);
 		if(IR_JMP) clr_pc(pdp);
 	}
 	if(IR_SKIP) {
@@ -547,7 +633,7 @@ cycle0(PDP1 *pdp)
 	if(IR_LAW) AC |= MB & 0007777;
 	if(IR_OPR) {
 		if(MB & B7) AC |= pdp->tw;
-		if(MB & B11) AC |= PC;
+		if(MB & B11) pc_to_ac(pdp);
 		if(MB & B14) pdp->pf |= decflg(MB);
 		else pdp->pf &= ~decflg(MB);
 	}
@@ -562,18 +648,27 @@ cycle0(PDP1 *pdp)
 	if(IR_OPR && (MB & B9) ||
 	   IR_INCORR ||
 	   pdp->single_cyc_sw ||
-	   pdp->single_inst_sw && !pdp->df1 && pdp->ir >= 030 ||
+	   pdp->single_inst_sw && CY0_INST_DONE ||
 	   !pdp->run_enable)
 		pdp->run = 0;
 	clrmd(pdp);
 
 	// TP9A
 	if(IR_SHRO && (MB & B14)) shro(pdp);
-	if(IR_IOT && pdp->ioh) PC = (PC-1) & ADDRMASK, pdp->df1 = pdp->df2 = 0;
+	if(IR_IOT && pdp->ioh) inst_cancel(pdp);
 
 	// TP10
+	sbs_reset_sync(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(pdp->df1 || pdp->ir < 030) pdp->cyc = 1;
+	if(pdp->sbm && pdp->req) {
+		if(CY0_INST_DONE || CY0_MIDBRK_PERMIT) {
+			pdp->cyc = 1;
+			pdp->bc |= 1;
+			if(CY0_MIDBRK_PERMIT) inst_cancel(pdp);
+assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
+		}
+	}
 	if(IR_SHRO && (MB & B13)) shro(pdp);
 	if(IR_IOT) {
 		if(pdp->ihs) pdp->ioh = 1;
@@ -587,16 +682,38 @@ cycle0(PDP1 *pdp)
 static void
 defer(PDP1 *pdp)
 {
+	int sbs_restore = 0;
+
 	// TP0
 	mb_to_ma(pdp);
 
 	// TP1
 	pdp->emc = 0;
 
+	// TP2
+	if(pdp->sbm && IR_JMP && pdp->epc == 0) {
+		if(pdp->sbs16) {
+			if((MB & 07703) == 1) {
+				pdp->b4 &= ~(1<<((MB&074)>>2));
+				pdp->exd = 1;
+				sbs_restore = 1;
+			}
+		} else {
+			if((MB & 07777) == 1) {
+				pdp->b3 = 0;
+				pdp->b4 = 0;
+				pdp->exd = 1;
+				sbs_restore = 1;
+			}
+		}
+		sbs_calc_req(pdp);
+	}
+
 	// TP3
 	MB = 0;
 
 	// TP4
+	sbs_sync(pdp);
 	readmem(pdp);
 
 	// TP5
@@ -610,25 +727,41 @@ defer(PDP1 *pdp)
 		if(IR_JSP) AC = 0;
 
 		// TP8
-		if(IR_JSP) AC |= PC, clr_pc(pdp);
+		if(IR_JSP) pc_to_ac(pdp), clr_pc(pdp);
 		if(IR_JMP) clr_pc(pdp);
 
 		// TP9
 		if(IR_JSP || IR_JMP) mb_to_pc(pdp);
 		clrmd(pdp);
 	}
+	// TP9
 	writemem(pdp);		// approximate
 	if(IR_INCORR ||
 	   pdp->single_cyc_sw ||
-	   pdp->single_inst_sw && !pdp->df2 && pdp->ir >= 030 ||
+	   pdp->single_inst_sw && DF_INST_DONE ||
 	   !pdp->run_enable)
 		pdp->run = 0;
 
+	// 3.5us after TP2, shortly before TP9A
+	if(sbs_restore) {
+		pdp->ov1 = !!(MB & B0);
+		pdp->exd = !!(MB & B1);
+	}
+
 	// TP10
+	sbs_reset_sync(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(!pdp->df2) {
 		pdp->df1 = 0;
 		if(pdp->ir >= 030) pdp->cyc = 0;
+	}
+	if(pdp->sbm && pdp->req) {
+		if(DF_INST_DONE || DF_MIDBRK_PERMIT) {
+			pdp->cyc = 1;
+			pdp->bc |= 1;
+			if(DF_MIDBRK_PERMIT) inst_cancel(pdp);
+assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
+		}
 	}
 	pdp->df2 = 0;
 	if(MB & B0) pdp->smb = 1;
@@ -673,10 +806,12 @@ cycle1(PDP1 *pdp)
 	if(IR_XCT) {
 		pdp->cyc = 0;
 		pdp->cychack = 4;
+// TODO: timing is off here
 		return;
 	}
 
 	// TP4
+	sbs_sync(pdp);
 	readmem(pdp);
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_LIO) IO = 0;
@@ -708,7 +843,7 @@ cycle1(PDP1 *pdp)
 	// TP8
 	if(IR_MUS)
 		mul_shift(pdp);
-	if(IR_CALJDA) AC |= PC, clr_pc(pdp);
+	if(IR_CALJDA) pc_to_ac(pdp), clr_pc(pdp);
 	if(IR_SAS && AC==0 || IR_SAD && AC!=0 ||
 	   IR_ISP && !(AC & B0))
 		pc_inc(pdp);
@@ -731,6 +866,7 @@ cycle1(PDP1 *pdp)
 	if(IR_CALJDA) pc_inc(pdp);
 
 	// TP10
+	sbs_reset_sync(pdp);
 	if(pdp->ov2) pdp->ov1 = 1;
 	pdp->ov2 = 0;
 	pdp->cyc = 0;
@@ -764,11 +900,79 @@ cycle1(PDP1 *pdp)
 	}
 }
 
+static void
+brkcycle(PDP1 *pdp)
+{
+	// TP0
+	if(IR_SHRO && (MB & B12)) shro(pdp);
+	if(pdp->bc == 1 && pdp->sbs16) {
+		int be = 0;
+		for(int r = pdp->req; !(r&1); r >>= 1)
+			be++;
+		MA |= be<<2;
+	}
+	if(pdp->bc == 2 || pdp->bc == 3) pc_to_ma(pdp);
+
+	// TP1
+	if(IR_SHRO && (MB & B11)) shro(pdp);
+	pdp->emc = 0;
+
+	// TP2
+	if(IR_SHRO && (MB & B10)) shro(pdp);
+	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
+	pdp->ihs = 0;
+
+	// TP3
+	if(IR_SHRO && (MB & B9)) shro(pdp);
+	MB = 0;
+
+	// TP4
+	if(pdp->bc == 1) hold_break(pdp);
+	sbs_sync(pdp);
+	readmem(pdp);
+	if(pdp->bc == 1) IR = 0;
+
+	// TP5
+	if(pdp->bc == 3) MB = 0;
+
+	// TP6
+
+	// TP7
+	if(pdp->bc == 1) MB = AC, AC = 0;
+	if(pdp->bc == 2) MB = AC;
+	if(pdp->bc == 3) MB |= IO;
+
+	// TP8
+	if(pdp->bc == 1) pc_to_ac(pdp), clr_pc(pdp);
+
+	// TP9
+	writemem(pdp);		// approximate
+	if(pdp->bc == 1) ma_to_pc(pdp);
+	if(pdp->single_cyc_sw ||
+	   !pdp->run_enable)
+		pdp->run = 0;
+	clrmd(pdp);
+
+	// TP9A
+	pc_inc(pdp);
+
+	// TP10
+	sbs_reset_sync(pdp);
+	if(pdp->run) clr_ma(pdp);
+	if(MB & B0) pdp->smb = 1;
+	if(pdp->bc == 3) pdp->cyc = 0;
+	pdp->bc = (pdp->bc+1) & 3;
+}
+
 void
 cycle(PDP1 *pdp)
 {
+	assert(pdp->cyc || pdp->bc==0);
+	assert(!pdp->df1 || pdp->bc==0);
+
 	// a cycle takes 5μs
-	if(!pdp->cyc) cycle0(pdp);
+	if(pdp->bc) brkcycle(pdp);
+	else if(!pdp->cyc) cycle0(pdp);
 	else if(pdp->df1) defer(pdp);
 	else cycle1(pdp);
 }
@@ -784,6 +988,8 @@ throttle(PDP1 *pdp)
 static void
 iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 {
+	int ch;
+	ch = (MB>>6)&077;
 	switch(dev) {
 	case 000:
 		break;
@@ -875,6 +1081,30 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		}
 		break;
 
+	case 050:	// dsc
+		if(!pulse) {
+			if(pdp->sbs16 && ch < 16)
+				pdp->b1 &= ~(1<<ch);
+		}
+		break;
+	case 051:	// asc
+		if(!pulse) {
+			if(pdp->sbs16 && ch < 16)
+				pdp->b1 |= (1<<ch);
+		}
+		break;
+	case 052:	// isb
+		if(!pulse) {
+			if(pdp->sbs16 && ch < 16)
+				pdp->b2 |= (1<<ch);
+		}
+		break;
+	case 053:	// cac
+		if(!pulse) {
+			if(pdp->sbs16)
+				pdp->b1 = 0;
+		}
+		break;
 	case 054:	// lsm
 		if(!pulse) {
 			pdp->sbm = 0;
@@ -885,9 +1115,9 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 			pdp->sbm = 1;
 		}
 		break;
-	case 056:	// csb		ESB in schematics?!?
+	case 056:	// cbs
 		if(!pulse) {
-			// TODO
+			clr_sbs(pdp);
 		}
 		break;
 
@@ -910,6 +1140,15 @@ iot(PDP1 *pdp, int pulse)
 	int dev = MB & 077;
 	if(!pulse && (dev&070)==030) IO = 0;
 	iot_pulse(pdp, pulse, dev, nac);
+}
+
+static void
+req(PDP1 *pdp, int chan)
+{
+	if(pdp->sbs16)
+		pdp->b2 |= pdp->b1 & (1<<chan);
+	else
+		pdp->b2 = 1;
 }
 
 void
@@ -946,6 +1185,9 @@ handleio(PDP1 *pdp)
 					pdp->rbs = 0;
 					if(pdp->rim) pdp->rim_return = 2;
 				}
+				// not sure about this, but seems annoying
+				if(!pdp->rim)
+					req(pdp, RD_CHAN);
 			}
 			pdp->rc = (pdp->rc+1) & 3;
 		}
@@ -959,6 +1201,7 @@ handleio(PDP1 *pdp)
 			write(pdp->p_fd, &c, 1);
 		}
 		if(pdp->pcp) pdp->ios = 1;
+		req(pdp, PUN_CHAN);
 	}
 
 	/* Typewriter */
@@ -975,6 +1218,7 @@ handleio(PDP1 *pdp)
 		// and overlaps with the type-in logic
 		pdp->tyo = 0;
 		if(pdp->tcp) pdp->ios = 1;
+		req(pdp, TTO_CHAN);
 	}
 	if(pdp->tyi_wait < pdp->simtime && hasinput(pdp->typ_fd)) {
 		char c;
@@ -990,6 +1234,7 @@ handleio(PDP1 *pdp)
 		pdp->tbs = 1;
 		// TYPE SYNC
 		pdp->pf |= 040;
+		req(pdp, TTI_CHAN);
 
 		// PDP-1 has to keep up, so avoid clobbering TB
 		// not sure what a good timeout here is

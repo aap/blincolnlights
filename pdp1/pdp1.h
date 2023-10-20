@@ -32,7 +32,7 @@ struct PDP1
 	int run, run_enable;
 	int cyc;
 	int df1, df2;
-	int bc1, bc2;
+	int bc;
 	int ov1, ov2;
 	int rim;
 	int sbm;
@@ -46,6 +46,15 @@ struct PDP1
 
 	int single_cyc_sw;
 	int single_inst_sw;
+
+	// seq break
+	int sbs16;	// 16 channel, type 20
+	// one bit per channel if type 20
+	u16 req;	// highest prio channel
+	u16 b1;		// on (only type 20)
+	u16 b2;		// req
+	u16 b3;		// req synchronized
+	u16 b4;		// break held
 
 	// type 10, multiply-divide
 	int muldiv_sw;
