@@ -29,6 +29,11 @@ struct Panel
 	int lights0;
 	int lights1;
 	int lights2;
+
+	// just for convenience
+	int psw1;
+	int sel1;
+	int sel2;
 };
 void *panelthread(void *arg);
 void delay(int ms);

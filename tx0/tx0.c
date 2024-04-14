@@ -374,9 +374,8 @@ cycle(TX0 *tx0)
 void
 throttle(TX0 *tx0)
 {
-	do
+	while(tx0->realtime < tx0->simtime)
 		tx0->realtime = gettime();
-	while(tx0->realtime < tx0->simtime);
 }
 
 void
@@ -451,7 +450,7 @@ handleio(TX0 *tx0)
 			if(y & 0400) y++;
 			x = ((x+0400)&0777)<<1;
 			y = ((y+0400)&0777)<<1;
-			int cmd = x | (y<<10) | (4<<20) | (dt<<23);
+			int cmd = x | (y<<10) | (7<<20) | (dt<<23);
 			tx0->dpy_last = tx0->simtime;
 			write(tx0->dpy_fd, &cmd, sizeof(cmd));
 		}

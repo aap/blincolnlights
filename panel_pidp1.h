@@ -55,5 +55,8 @@ struct Panel
 	int lights4;
 	int lights5;
 	int lights6;
+
+	// just for convenience
+	int psw2;
 };
 void *panelthread(void *arg);

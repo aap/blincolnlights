@@ -34,6 +34,39 @@
 static void iot_pulse(PDP1 *pdp, int pulse, int dev, int nac);
 static void iot(PDP1 *pdp, int pulse);
 
+// TP length	ns
+//	0 	200	200
+//	1 	300	500
+//	2 	550	1050
+//	3 	300	1350
+//	4 	200	1550
+//	5 	250	1800
+//	6 	250	2050
+//	6a 	400	2450
+//	7 	200	2650
+//	8 	200	2850
+//	9 	1200	4050
+//	9a 	750	4800
+//	10 	200	5000
+
+enum {
+	TP0_end = 200,
+	TP1_end = 500,
+	TP2_end = 1050,
+	TP3_end = 1350,
+	TP4_end = 1550,
+	TP5_end = 1800,
+	TP6_end = 2050,
+	TP6a_end = 2450,
+	TP7_end = 2650,
+	TP8_end = 2850,
+	TP9_end = 4050,
+	TP9a_end = 4800,
+	TP10_end = 5000,
+	TP_unreachable = TP10_end
+};
+#define TP(n) if(pdp->timernd < TP##n##_end) { updatelights(pdp, pdp->panel); pdp->timernd = TP_unreachable; }
+
 static void
 readmem(PDP1 *pdp)
 {
@@ -566,35 +599,42 @@ cycle0(PDP1 *pdp)
 	// TP0
 	if(IR_SHRO && (MB & B12)) shro(pdp);
 	pc_to_ma(pdp);
+	TP(0)
 
 	case 1:
 	// TP1
 	if(IR_SHRO && (MB & B11)) shro(pdp);
 	pdp->emc = 0;
+	TP(1)
 
 	// TP2
 	if(IR_SHRO && (MB & B10)) shro(pdp);
 	pc_inc(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
+	TP(2)
 
 	// TP3
 	if(IR_SHRO && (MB & B9)) shro(pdp);
 	MB = 0;
+	TP(3)
 
 	case 4:
 	// TP4
 	sbs_sync(pdp);
 	readmem(pdp);
 	IR = 0;
+	TP(4)
 
 	// TP5
 	IR |= MB>>13;
+	TP(5)
 
 	// TP6
 	if((MB & B5) && !IR_SHRO && !IR_SKIP &&
 	                !IR_LAW && !IR_OPR && !IR_IOT && !IR_CALJDA)
 		pdp->df1 = 1;
+	TP(6)
 
 	// TP6a
 	if(IR_IOT && !(MB & B5) && pdp->ioh) {
@@ -602,6 +642,7 @@ cycle0(PDP1 *pdp)
 		pdp->ihs = 1;
 		pdp->ioh = 0;
 	}
+	TP(6a)
 
 	// TP7
 	if(IR_SHRO && (MB & B17)) shro(pdp);
@@ -611,6 +652,7 @@ cycle0(PDP1 *pdp)
 		if((MB & B5) && !pdp->ioh && !pdp->ihs) pdp->ioh = 1;
 		if(pdp->ioc) iot(pdp, 0);
 	}
+	TP(7)
 
 	// TP8
 	if(!pdp->df1) {
@@ -637,6 +679,7 @@ cycle0(PDP1 *pdp)
 		if(MB & B14) pdp->pf |= decflg(MB);
 		else pdp->pf &= ~decflg(MB);
 	}
+	TP(8)
 
 	// TP9
 	writemem(pdp);		// approximate
@@ -652,10 +695,12 @@ cycle0(PDP1 *pdp)
 	   !pdp->run_enable)
 		pdp->run = 0;
 	clrmd(pdp);
+	TP(9)
 
 	// TP9A
 	if(IR_SHRO && (MB & B14)) shro(pdp);
 	if(IR_IOT && pdp->ioh) inst_cancel(pdp);
+	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
@@ -676,6 +721,7 @@ assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
 		if(pdp->ioc) iot(pdp, 1);
 	}
 	if(MB & B0) pdp->smb = 1;
+	TP(10)
 	}
 }
 
@@ -686,9 +732,11 @@ defer(PDP1 *pdp)
 
 	// TP0
 	mb_to_ma(pdp);
+	TP(0)
 
 	// TP1
 	pdp->emc = 0;
+	TP(1)
 
 	// TP2
 	if(pdp->sbm && IR_JMP && pdp->epc == 0) {
@@ -708,27 +756,40 @@ defer(PDP1 *pdp)
 		}
 		sbs_calc_req(pdp);
 	}
+	TP(2)
 
 	// TP3
 	MB = 0;
+	TP(3)
 
 	// TP4
 	sbs_sync(pdp);
 	readmem(pdp);
+	TP(4)
 
 	// TP5
 	if(pdp->exd) pdp->emc = 1;
+	TP(5)
 
 	if(MB & B5 && !pdp->exd) {
 		// TP6
 		pdp->df2 = 1;
+		TP(6)
+		TP(6a)
+		TP(7)
+		TP(8)
 	} else {
+		TP(6)
+		TP(6a)
+
 		// TP7
 		if(IR_JSP) AC = 0;
+		TP(7)
 
 		// TP8
 		if(IR_JSP) pc_to_ac(pdp), clr_pc(pdp);
 		if(IR_JMP) clr_pc(pdp);
+		TP(8)
 
 		// TP9
 		if(IR_JSP || IR_JMP) mb_to_pc(pdp);
@@ -741,12 +802,14 @@ defer(PDP1 *pdp)
 	   pdp->single_inst_sw && DF_INST_DONE ||
 	   !pdp->run_enable)
 		pdp->run = 0;
+	TP(9)
 
 	// 3.5us after TP2, shortly before TP9A
 	if(sbs_restore) {
 		pdp->ov1 = !!(MB & B0);
 		pdp->exd = !!(MB & B1);
 	}
+	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
@@ -765,6 +828,7 @@ assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
 	}
 	pdp->df2 = 0;
 	if(MB & B0) pdp->smb = 1;
+	TP(10)
 }
 
 static void
@@ -784,10 +848,12 @@ cycle1(PDP1 *pdp)
 	// EMA stuff
 	if(IR_DIS)
 		div_shift(pdp);
+	TP(0)
 
 	case 1:
 	// TP1
 	pdp->emc = 0;
+	TP(1)
 
 	// TP2
 	if(IR_DIS && !(IO & B17)) {
@@ -798,6 +864,7 @@ cycle1(PDP1 *pdp)
 		MB = AC;
 		IO = 0;
 	}
+	TP(2)
 
 	// TP3
 	if(IR_MUL)
@@ -806,15 +873,17 @@ cycle1(PDP1 *pdp)
 	if(IR_XCT) {
 		pdp->cyc = 0;
 		pdp->cychack = 4;
-// TODO: timing is off here
+		cycle0(pdp);
 		return;
 	}
+	TP(3)
 
 	// TP4
 	sbs_sync(pdp);
 	readmem(pdp);
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_LIO) IO = 0;
+	TP(4)
 
 	// TP5
 	if(IR_AND) AC &= MB;
@@ -826,12 +895,15 @@ cycle1(PDP1 *pdp)
 	if(IR_XOR || IR_ADD || IR_SUB || IR_SAD || IR_SAS ||
 	   IR_DIS || IR_MUS && (IO & B17))
 		AC ^= MB;
+	TP(5)
 
 	// TP6
 	if(IR_ADD || IR_SUB || IR_DIS || IR_MUS && (IO & B17))
 		carry(pdp);
 	if(IR_IDX || IR_ISP)
 		inc_ac(pdp);
+	TP(6)
+	TP(6a)
 
 	// TP7
 	if(IR_DAC || IR_IDX || IR_ISP) MB = AC;
@@ -839,6 +911,7 @@ cycle1(PDP1 *pdp)
 	if(IR_DAP) MB = MB&0770000 | AC&0007777;
 	if(IR_DIP) MB = MB&0007777 | AC&0770000;
 	if(IR_DIO) MB = IO;
+	TP(7)
 
 	// TP8
 	if(IR_MUS)
@@ -847,6 +920,7 @@ cycle1(PDP1 *pdp)
 	if(IR_SAS && AC==0 || IR_SAD && AC!=0 ||
 	   IR_ISP && !(AC & B0))
 		pc_inc(pdp);
+	TP(8)
 
 	// TP9
 	writemem(pdp);		// approximate
@@ -860,10 +934,12 @@ cycle1(PDP1 *pdp)
 	   !pdp->run_enable)
 		pdp->run = 0;
 	clrmd(pdp);
+	TP(9)
 
 	// TP9A
 	if((IR_ADD || IR_DIS) && AC == 0777777) AC = 0;
 	if(IR_CALJDA) pc_inc(pdp);
+	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
@@ -897,6 +973,7 @@ cycle1(PDP1 *pdp)
 		// without delay to TP0
 		pdp->simtime -= 200;
 	}
+	TP(10)
 	}
 }
 
@@ -912,38 +989,48 @@ brkcycle(PDP1 *pdp)
 		MA |= be<<2;
 	}
 	if(pdp->bc == 2 || pdp->bc == 3) pc_to_ma(pdp);
+	TP(0)
 
 	// TP1
 	if(IR_SHRO && (MB & B11)) shro(pdp);
 	pdp->emc = 0;
+	TP(1)
 
 	// TP2
 	if(IR_SHRO && (MB & B10)) shro(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
+	TP(2)
 
 	// TP3
 	if(IR_SHRO && (MB & B9)) shro(pdp);
 	MB = 0;
+	TP(3)
 
 	// TP4
 	if(pdp->bc == 1) hold_break(pdp);
 	sbs_sync(pdp);
 	readmem(pdp);
 	if(pdp->bc == 1) IR = 0;
+	TP(4)
 
 	// TP5
 	if(pdp->bc == 3) MB = 0;
+	TP(5)
 
 	// TP6
+	TP(6)
+	TP(6a)
 
 	// TP7
 	if(pdp->bc == 1) MB = AC, AC = 0;
 	if(pdp->bc == 2) MB = AC;
 	if(pdp->bc == 3) MB |= IO;
+	TP(7)
 
 	// TP8
 	if(pdp->bc == 1) pc_to_ac(pdp), clr_pc(pdp);
+	TP(8)
 
 	// TP9
 	writemem(pdp);		// approximate
@@ -952,9 +1039,11 @@ brkcycle(PDP1 *pdp)
 	   !pdp->run_enable)
 		pdp->run = 0;
 	clrmd(pdp);
+	TP(9)
 
 	// TP9A
 	pc_inc(pdp);
+	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
@@ -962,14 +1051,18 @@ brkcycle(PDP1 *pdp)
 	if(MB & B0) pdp->smb = 1;
 	if(pdp->bc == 3) pdp->cyc = 0;
 	pdp->bc = (pdp->bc+1) & 3;
+	TP(10)
 }
 
 void
 cycle(PDP1 *pdp)
 {
-	assert(pdp->cyc || pdp->bc==0);
-	assert(!pdp->df1 || pdp->bc==0);
+// TODO: these can be wrong after power on
+// how do we handle that?
+//	assert(pdp->cyc || pdp->bc==0);
+//	assert(!pdp->df1 || pdp->bc==0);
 
+	pdp->timernd = rand() % TP_unreachable;
 	// a cycle takes 5μs
 	if(pdp->bc) brkcycle(pdp);
 	else if(!pdp->cyc) cycle0(pdp);
@@ -980,9 +1073,8 @@ cycle(PDP1 *pdp)
 void
 throttle(PDP1 *pdp)
 {
-	do
+	while(pdp->realtime < pdp->simtime)
 		pdp->realtime = gettime();
-	while(pdp->realtime < pdp->simtime);
 }
 
 static void
@@ -1253,9 +1345,10 @@ handleio(PDP1 *pdp)
 			if(y & 01000) y++;
 			x = (x+01000)&01777;
 			y = (y+01000)&01777;
-			int cmd = x | (y<<10) | (4<<20) | (dt<<23);
+			int cmd = x | (y<<10) | (7<<20) | (dt<<23);
 			pdp->dpy_last = pdp->simtime;
-			write(pdp->dpy_fd, &cmd, sizeof(cmd));
+			if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
+				pdp->dpy_fd = -1;
 		}
 		if(pdp->dcp) pdp->ios = 1;
 	}
@@ -1269,7 +1362,8 @@ agedisplay(PDP1 *pdp)
 	u64 dt = (pdp->simtime - pdp->dpy_last)/1000;
 	while(dt >= 511) {
 		pdp->dpy_last += 511*1000;
-		write(pdp->dpy_fd, &cmd, sizeof(cmd));
+		if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
+			pdp->dpy_fd = -1;
 		dt = (pdp->simtime - pdp->dpy_last)/1000;
 	}
 }
@@ -1335,6 +1429,11 @@ cli(PDP1 *pdp)
 	n = read(0, line, sizeof(line));
 	if(n > 0 && n < sizeof(line)) {
 		line[n] = '\0';
+
+		char *resp = handlecmd(pdp, line);
+		printf("%s\n", resp);
+
+#if 0
 		if(p = strchr(line, '\r'), p) *p = '\0';
 		if(p = strchr(line, '\n'), p) *p = '\0';
 
@@ -1398,5 +1497,129 @@ cli(PDP1 *pdp)
 
 		free(args[0]);
 		free(args);
+#endif
 	}
+}
+
+char*
+handlecmd(PDP1 *pdp, char *line)
+{
+	int n;
+	static char resp[1024];
+	char *p;
+
+	if(p = strchr(line, '\r'), p) *p = '\0';
+	if(p = strchr(line, '\n'), p) *p = '\0';
+
+	char **args = split(line, &n);
+
+	strcpy(resp, "ok");
+	if(n > 0) {
+		// reader
+		if(strcmp(args[0], "r") == 0) {
+			close(pdp->r_fd);
+			pdp->r_fd = -1;
+			if(args[1]) {
+				pdp->r_fd = open(args[1], O_RDONLY);
+				if(pdp->r_fd < 0)
+					sprintf(resp, "couldn't open %s", args[1]);
+			}
+		}
+		// punch
+		else if(strcmp(args[0], "p") == 0) {
+			close(pdp->p_fd);
+			pdp->p_fd = -1;
+			if(args[1]) {
+				pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC, 0644);
+				if(pdp->p_fd < 0)
+					sprintf(resp, "couldn't open %s", args[1]);
+			}
+		}
+		// load
+		else if(strcmp(args[0], "l") == 0) {
+			static char *rimfile = nil;
+			int fd;
+			if(args[1]) {
+				free(rimfile);
+				rimfile = strdup(args[1]);
+			}
+			if(rimfile) {
+				fd = open(rimfile, O_RDONLY);
+				if(fd < 0) {
+					sprintf(resp, "couldn't open %s", rimfile);
+				} else {
+					readrim(pdp, fd);
+					close(fd);
+				}
+			} else
+				sprintf(resp, "no filename");
+		}
+		// display
+		else if(strcmp(args[0], "d") == 0) {
+			static const char *host = "localhost";
+			static int port = 3400;
+			if(args[1])
+				host = args[1];
+			if(args[2])
+				port = atoi(args[2]);
+
+			if(pdp->dpy_fd >= 0)
+				close(pdp->dpy_fd);
+			pdp->dpy_last = pdp->simtime;
+			pdp->dpy_fd = dial(host, port);
+			if(pdp->dpy_fd < 0)
+				strcpy(resp, "can't open display");
+			else
+				nodelay(pdp->dpy_fd);
+		}
+		// help
+		else if(strcmp(args[0], "?") == 0 ||
+			strcmp(args[0], "help") == 0) {
+			p = resp;
+			p += sprintf(p, "r                     unmount tape from reader\n");
+			p += sprintf(p, "r filename            mount tape in reader\n");
+			p += sprintf(p, "p                     unmount tape from punch\n");
+			p += sprintf(p, "p filename            mount tape in punch\n");
+			p += sprintf(p, "l filename            load memory from RIM-file\n");
+			p += sprintf(p, "d [host] [port]       connect to display program\n");
+			p += sprintf(p, "muldiv                toggle type 10 mul-div option");
+		}
+		else if(strcmp(args[0], "muldiv") == 0) {
+			pdp->muldiv_sw = !pdp->muldiv_sw;
+			sprintf(resp, "mul-div now %s\n", pdp->muldiv_sw ? "on" : "off");
+		}
+		/* fiddle with lights */
+#if 0
+		else if(strcmp(args[0], "br") == 0) {
+			extern float rise;
+			if(args[1])
+				rise = atof(args[1]);
+			else
+				rise = 0.012f;
+		}
+		else if(strcmp(args[0], "bf") == 0) {
+			extern float fall;
+			if(args[1])
+				fall = atof(args[1]);
+			else
+				fall = 0.995f;
+		}
+		else if(strcmp(args[0], "bp") == 0) {
+			extern float power;
+			if(args[1])
+				power = atof(args[1]);
+			else
+				power = 1.0f;
+		}
+		else if(strcmp(args[0], "sw") == 0) {
+			extern int lightswitch;
+			lightswitch ^= 1;
+		}
+#endif
+	}
+
+	free(args[0]);
+	free(args);
+
+	return resp;
 }

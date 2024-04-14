@@ -1,4 +1,4 @@
 INC=-I..
 LIBS=-lpthread
-whirlwind: whirlwind.c ../common.c ../gpio.c ../panel_b18.c
+whirlwind: whirlwind.c panelb18.c ../common.c
 	cc -O3 -o whirlwind $^ $(INC) $(LIBS)

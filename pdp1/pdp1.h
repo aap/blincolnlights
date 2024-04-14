@@ -1,3 +1,4 @@
+#include <stdbool.h>
 
 typedef u32 Word;
 typedef u16 Addr;
@@ -8,9 +9,15 @@ typedef u16 Addr;
 #define MAXMEM (64*1024)
 
 typedef struct PDP1 PDP1;
+typedef struct Panel Panel;
+
+void updatelights(PDP1 *pdp, Panel *panel);
 
 struct PDP1
 {
+	int timernd;
+	Panel *panel;
+
 	Word ac;
 	Word io;
 	Word mb;
@@ -22,12 +29,17 @@ struct PDP1
 	Word ta;
 	Word tw;
 
-	int start_sw;
-	int sbm_start_sw;
-	int stop_sw;
-	int continue_sw;
-	int examine_sw;
-	int deposit_sw;
+	bool start_sw;
+	bool sbm_start_sw;
+	bool stop_sw;
+	bool continue_sw;
+	bool examine_sw;
+	bool deposit_sw;
+	bool readin_sw;
+
+	bool power_sw;
+	bool single_cyc_sw;
+	bool single_inst_sw;
 
 	int run, run_enable;
 	int cyc;
@@ -43,9 +55,6 @@ struct PDP1
 
 	int ss;
 	int pf;
-
-	int single_cyc_sw;
-	int single_inst_sw;
 
 	// seq break
 	int sbs16;	// 16 channel, type 20
@@ -99,7 +108,7 @@ struct PDP1
 	int pb;
 	int punon;
 	// simulation
-	int p_time;
+	u64 p_time;
 	int p_fd;
 
 	// typewriter
@@ -136,7 +145,7 @@ struct PDP1
 #define IR_DIP (IR == 014)
 #define IR_DIO (IR == 015)
 #define IR_DZM (IR == 016)
-// 17
+// 17 - adm
 #define IR_ADD (IR == 020)
 #define IR_SUB (IR == 021)
 #define IR_IDX (IR == 022)
@@ -168,3 +177,4 @@ void handleio(PDP1 *pdp);
 void agedisplay(PDP1 *pdp);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
+char *handlecmd(PDP1 *pdp, char *line);

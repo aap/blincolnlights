@@ -163,6 +163,8 @@ panelthread(void *arg)
 	panel.p = (Panel*)arg;
 	pthread_create(&th, nil, lampthread, &panel);
 
+	clearRow();
+
 	while(!doexit) {
 		setLights(&panel);
 		readSwitches(panel.p);
@@ -206,4 +208,19 @@ initGPIO(void)
 	usleep(1);
 	gpio->pud = 0;
 	gpio->pudclk0 = 0;
+}
+
+int
+main(int argc, char *argv[])
+{
+	Panel *p;
+
+	p = createseg("/tmp/b18_panel", sizeof(Panel));
+	if(p == nil)
+		return 1;
+
+	initGPIO();
+	panelthread(p);
+
+	return 0;	// can't happen
 }

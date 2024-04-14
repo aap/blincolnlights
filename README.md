@@ -1,48 +1,72 @@
 # Blincolnlights
 
-The simulators are meant to be used with the
-[Blincolnlights 18](https://hackaday.io/project/191985-blincolnlights-18)
-panel.
-The TX-0 and PDP-1 simulators also support the upcoming PiDP-1 panel.
+This repository contains code to interface
+with the [Blincolnlights 18](https://hackaday.io/project/191985-blincolnlights-18),
+the PiDP-10 and the upcoming PiDP-1 panels.
 
-Currently there are Whirlwind, TX-0 and PDP-1 emulators.
+In addition, there are software emulators of the
+Whirlwind, TX-0 and PDP-1, which make use of these panels.
+A PDP-6 emulator that works with the PiDP-10 panel
+can be found [here](https://github.com/aap/pdp6/tree/master/newemu).
+
+TODO: Eventually this repository will probably only have the
+panel drivers, and emulators elsewhere.
+
+The panel drivers and the emulator communicate by mmap'ing
+a file that represents the physical panel.
+That way a physical panel is easily swappable for a virtual one
+or another user interface.
+
+# RPI configuration
+
+I noticed issues when i had i2c enabled in `/boot/config.txt`.
+The pigpio library knows how to deal with that somehow but
+my own code for some reason does not work and GPIO 2 and 3 are always high.
+Until I manage to fix this, please make sure you don't have i2c on.
 
 # Building
 
-To build the system simulators
-just execute `make` in the `whirlwind`, `tx0` or `pdp1` directory.
+To build everything run `make' in the root directory.
 
-To build the Flexowriter simulator,
-`make mkptyfl` in the `tools` directory.
+# Panel drivers
 
-To build the FIO-DEC Model B simulator,
-`make mkptyfio` in the `tools` directory.
+For the Blincolnlights 18 panel, start `panel_b18/panel_b18` before
+starting any emulator.
+
+For the PiDP-1 panel, start `panel_pidp1/panel_pidp1` before
+starting any emulator.
+
+For the PiDP-10 panel, start `panel_pidp10/panel_pidp10` before
+starting any emulator.
 
 # Whirlwind
 
-Simulated peripherals are only a display.
+Emulated peripherals are only a display.
 
 ## Run
-Run `./whirlwind` in the `whirlwind` directory.
+Start the blincolnlights 18 panel driver,
+then run `./whirlwind` in the `whirlwind` directory.
 
 # TX-0
 
-Simulated peripherals are the display, paper tape reader, and Flexowriter (typewriter and punch).
+Emulated peripherals are the display, paper tape reader, and Flexowriter (typewriter and punch).
 The configuration is the original with 64kw memory and no new instructions yet.
 In the future it would be nice to expand it.
 
 ## Run
-Run `mkptyfl /tmp/fl` to create a pty,
-then `./tx0` in the `tx0` directory to run the TX-0 simulator (`./tx0_pidp1`) for the PiDP-1 panel).
+Run `mkptyfl /tmp/fl` to create a pty.
+Start either the blincolnlights or PiDP-1 panel driver, 
+then `./tx0` in the `tx0` directory to run the TX-0 emulator (`./tx0_pidp1` for the PiDP-1 panel).
 
 # PDP-1
 
-Simulated peripherals are the display, paper tape reader and punch, and Typewriter.
-Not all extensions are implemented yet, only a very basic PDP-1/C.
+Emulated peripherals are the display, paper tape reader and punch, and Typewriter.
+The emulated system is a PDP-1/C with various options.
 
 ## Run
-Run `mkptyfio /tmp/typ` to create a pty,
-then `./pdp1` in the `pdp1` directory to run the PDP-1 simulator (`./pidp1`) for the PiDP-1 panel).
+Run `mkptyfio /tmp/typ` to create a pty.
+Start either the blincolnlights or PiDP-1 panel driver, 
+then `./pdp1` in the `pdp1` directory to run the PDP-1 emulator (`./pidp1` for the PiDP-1 panel).
 
 # Display
 

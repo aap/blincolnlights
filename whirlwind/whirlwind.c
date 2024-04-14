@@ -1,21 +1,19 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <assert.h>
+#include "common.h"
+#include "whirlwind.h"
+//#include "panel_b18.h"
+#include "args.h"
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
 
-#include "args.h"
-#include "common.h"
-#include "panel_b18.h"
+#include <signal.h>
 
-typedef u16 Addr, Word;
-#define WORDMASK 0177777
-#define ADDRMASK 03777
-#define MAXMEM (2*1024)
+typedef struct Panel Panel;
+void updateswitches(Whirlwind *ww, Panel *panel);
+void updatelights(Whirlwind *ww, Panel *panel);
+void lightsoff(Panel *panel);
+Panel *getpanel(void);
 
 /*
     logic and schematics:
@@ -25,101 +23,9 @@ typedef u16 Addr, Word;
 	R-221_Whirlwind_I_Operational_Logic_May54.pdf
 */
 
-typedef struct Whirlwind Whirlwind;
-typedef struct ExUnit ExUnit;
-typedef struct Scope Scope;
-
-struct ExUnit
-{
-	int active;     // reading or recording
-	void (*start)(Whirlwind *ww, ExUnit *eu);
-	void (*stop)(Whirlwind *ww, ExUnit *eu);
-	void (*record)(Whirlwind *ww, ExUnit *eu);
-	void (*read)(Whirlwind *ww, ExUnit *eu);
-};
 static void nullIO(Whirlwind *ww, ExUnit *eu) {}
 ExUnit nullUnit = { 0, nullIO, nullIO, nullIO, nullIO };
 
-struct Scope
-{
-	ExUnit eu;
-	int fd;
-	u64 last;
-};
-
-struct Whirlwind
-{
-	// control - 100
-	int ms_on;
-	int stop_clock;
-	int automatic;
-	int stop_tp5;		// no idea how this is really done
-	int stop_si1;
-	int tpd;
-	Word pc;
-	Word pc_reset_sw;
-	int cs, cs_dec;
-	int ssc;
-	// test storage - 200
-	Word tss;
-	Word tg[16];
-	Word ffs[5], *sel_ffs;
-	Word ffs_reset_sw[5];
-	// arithmetic - 300
-	Word ar;
-	Word ac;
-	Word ac_cry;
-	Word br;
-	int src;
-	int sc;
-	int sam;
-	int ov;
-	int sign;
-	int div_err;
-	// arithmetic control
-	int div_ff, div_pulse;
-	int sr_ff;
-	int sl_ff;
-	int mul_ff;
-	int po_ff, po_pulse;
-	// IO - 400
-	Word ior;
-	Word ios;
-	int ios_dec;
-	int iocc;
-	int iodc;
-	int iodc_start;
-	int interlock;
-	// external units - 500
-	int vdefl;
-	int hdefl;
-	ExUnit misc;
-	Scope scope;
-	ExUnit *active_unit;
-	// check - 600
-	Word cr;
-	// magnetic storage - 800
-	Word par;
-	Word mar;
-	Word mar_buf;	// no idea how this works
-	Word ms[MAXMEM];
-	int ms_strobe;
-	int ms_state;	// simulate delay
-
-	Word bus, ckbus;
-
-// alarms
-//	arithmetic
-//	divide error
-//	cr
-//	program		(reader)
-//	parity
-//	inactivity	(500ms no completion)
-
-	// simulation
-	u64 simtime;
-	u64 realtime;
-};
 
 // IOS decoded:
 // from E-466-1_Operation_of_the_In-Out_Element_Feb54.pdf
@@ -1108,26 +1014,14 @@ start_over(Whirlwind *ww, Word pc)
 void
 throttle(Whirlwind *ww)
 {
-	do
+	while(ww->realtime < ww->simtime)
 		ww->realtime = gettime();
-	while(ww->realtime < ww->simtime);
 }
 
 void
 emu(Whirlwind *ww, Panel *panel)
 {
-	int sw0, sw1;
-	int psw1;
-	int down;
-	int sel1, sel2;
-	int indicators;
-
 	int stop_tp5 = 0;
-
-	sw0 = 0;
-	sw1 = 0;
-	sel1 = 0;
-	sel2 = 0;
 
 	pwrclr(ww);
 
@@ -1135,54 +1029,10 @@ emu(Whirlwind *ww, Panel *panel)
 	ww->simtime = gettime();
 	ww->scope.last = ww->simtime;
 	for(;;) {
-		psw1 = sw1;
-		sw0 = panel->sw0;
-		sw1 = panel->sw1;
-		down = sw1 & ~psw1;
+		updateswitches(ww, panel);
 
-		if(sw1 & SW_POWER) {
-			if(down) {
-				if(down & KEY_SEL1)
-					sel1 = (sel1+1 + 2*!!(sw1&KEY_MOD)) % 4;
-				if(down & KEY_SEL2)
-					sel2 = (sel2+1 + 2*!!(sw1&KEY_MOD)) % 4;
-				if(down & KEY_LOAD1) {
-					// ??
-				}
-				if(down & KEY_LOAD2) {
-					// ??
-				}
-			}
-
-			indicators = 0;
-			if(sw1 & KEY_SPARE) {
-				indicators |= ww->stop_clock<<9;
-				indicators |= 0<<8;
-				indicators |= 0<<7;
-				indicators |= 0<<6;
-			} else {
-				indicators |= ww->automatic<<9;
-				indicators |= 0<<8;
-				indicators |= 0<<7;
-				indicators |= ww->tpd<<6;
-			}
-			indicators |= (0x8>>sel1) << 10;
-			indicators |= (0x8>>sel2) << 14;
-			indicators |= sw1 & 0x3F;
-			switch(sel1) {
-			case 0: panel->lights0 = ww->sam<<17 | ww->ov<<16 |
-				((sw1 & KEY_SPARE)?ww->ac_cry:ww->ac); break;
-			case 1: panel->lights0 = ww->ssc<<17 | ww->mar; break;
-			case 2: panel->lights0 = ww->cs<<13 | ww->src<<12 | ww->sc<<6 | ww->tss; break;
-			case 3: panel->lights0 = ww->cr; break;
-			}
-			switch(sel2) {
-			case 0: panel->lights1 = ww->br; break;
-			case 1: panel->lights1 = ww->pc; break;
-			case 2: panel->lights1 = ww->par; break;
-			case 3: panel->lights1 = ww->ar; break;
-			}
-			panel->lights2 = indicators;
+		if(ww->power_sw) {
+			updatelights(ww, panel);
 
 // M-1734_WWI_Control_Switches_and_Pushbuttons_for_Normal_Operation_of_the_Computer_Dec1952.pdf
 // PB:
@@ -1206,39 +1056,21 @@ emu(Whirlwind *ww, Panel *panel)
 //	STOP ON si-1
 //	STOP ON SEL PULSE	a bit complicated
 
-			ww->pc_reset_sw = sw0 & 03777;
-			if(down & KEY_START) {
-				start_over(ww, sw1&KEY_MOD ? 040 : ww->pc_reset_sw);
-				if(sw1&KEY_STOP)
-					ww->automatic = 0;
-			}
-			if(down & KEY_READIN) {
-				start_over(ww, 21);
-				if(sw1&KEY_STOP)
-					ww->automatic = 0;
-			}
-			if(down & KEY_EXAM) {
+			if(ww->btn_start_over) start_over(ww, ww->pc_reset_sw);
+			if(ww->btn_start_at40) start_over(ww, 040);
+			if(ww->btn_readin) start_over(ww, 21);
+			if(ww->btn_examine) {
 				start_over(ww, ww->pc_reset_sw);
-				if(sw1&KEY_STOP)
-					ww->automatic = 0;
 				ww->stop_tp5 = 1;
 			}
-			if(down & KEY_STOP)
-				ww->automatic = 0;
-			int pulse = 0;
-			if(down & KEY_CONT) {
-				if(sw1 & KEY_MOD) {
-					ww->stop_clock = 0;
-				} else if(sw1 & SW_SSTEP) {
-					pulse = 1;
-				} else if(sw1 & SW_SINST) {
-					ww->automatic = 1;
-					ww->stop_tp5 = 1;
-				} else {
-					ww->automatic = 1;
-				}
+			// not a pulse here - so can single step clock pulses
+			if(ww->btn_stop) ww->automatic = 0;
+			if(ww->btn_restart) ww->automatic = 1;
+			if(ww->btn_order_by_order) {
+				ww->automatic = 1;
+				ww->stop_tp5 = 1;
 			}
-			ww->stop_si1 = !!(sw1 & SW_SPARE1);
+			if(ww->btn_start_clock) ww->stop_clock = 0;
 
 			// 1μs interval
 			ms_tick(ww);
@@ -1254,7 +1086,7 @@ emu(Whirlwind *ww, Panel *panel)
 				ae_hf(ww);
 				ae_hf(ww);
 				ae_lf(ww);
-			} else if(pulse) {
+			} else if(ww->btn_clock_pulse) {
 				if(ww->stop_clock) {
 					ae_hf(ww);
 					ae_lf(ww);
@@ -1271,9 +1103,7 @@ emu(Whirlwind *ww, Panel *panel)
 		} else {
 			pwrclr(ww);
 
-			panel->lights0 = 0;
-			panel->lights1 = 0;
-			panel->lights2 = 0;
+			lightsoff(panel);
 
 			ww->simtime = gettime();
 		}
@@ -1334,10 +1164,22 @@ usage(void)
 	exit(1);
 }
 
+static Panel *panel;
+void
+exitcleanup(void)
+{
+	lightsoff(panel);
+}
+
+void
+inthandler(int sig)
+{
+	exit(0);
+}
+
 int
 main(int argc, char *argv[])
 {
-	Panel panel;
 	Whirlwind ww1, *ww = &ww1;
 	pthread_t th;
 	const char *host;
@@ -1356,8 +1198,16 @@ main(int argc, char *argv[])
 		usage();
 	} ARGEND;
 
-	initGPIO();
-	memset(&panel, 0, sizeof(panel));
+	panel = getpanel();
+	if(panel == nil) {
+		fprintf(stderr, "can't find operator panel\n");
+		return 1;
+	}
+
+	atexit(exitcleanup);
+	signal(SIGPIPE, SIG_IGN);
+	signal(SIGINT, inthandler);
+
 	memset(ww, 0, sizeof(*ww));
 	ww->misc = nullUnit;
 	ww->misc.start = start_misc;
@@ -1404,8 +1254,6 @@ main(int argc, char *argv[])
 	ww->tg[26] = CP_ 12;
 	ww->tg[27] = SP_ 24;
 
-	pthread_create(&th, NULL, panelthread, &panel);
-
-	emu(ww, &panel);
+	emu(ww, panel);
 	return 0;	// can't happen
 }

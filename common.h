@@ -19,7 +19,11 @@ typedef int8_t i8;
 void panic(const char *fmt, ...);
 int hasinput(int fd);
 int dial(const char *host, int port);
+int serve1(int port);
 void nodelay(int fd);
+
+void *createseg(const char *name, size_t sz);
+void *attachseg(const char *name, size_t sz);
 
 void inittime(void);
 u64 gettime(void);

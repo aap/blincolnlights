@@ -1,3 +1,4 @@
+#include <stdbool.h>
 
 typedef u32 Word;
 typedef u16 Addr;
@@ -21,21 +22,22 @@ struct TX0
 	Word tac;
 
 	// not all used (yet?)
-	int sw_sup_alarm;
-	int sw_sup_chime;
-	int sw_auto_restart;
-	int sw_auto_readin;
-	int sw_auto_test;
-	int sw_stop_c0;
-	int sw_stop_c1;
-	int sw_step;
-	int sw_repeat;
-	int sw_cm_sel;
-	int sw_type_in;
-	int btn_test;
-	int btn_readin;
-	int btn_stop;
-	int btn_restart;
+	bool sw_power;
+	bool sw_sup_alarm;
+	bool sw_sup_chime;
+	bool sw_auto_restart;
+	bool sw_auto_readin;
+	bool sw_auto_test;
+	bool sw_stop_c0;
+	bool sw_stop_c1;
+	bool sw_step;
+	bool sw_repeat;
+	bool sw_cm_sel;
+	bool sw_type_in;
+	bool btn_test;
+	bool btn_readin;
+	bool btn_stop;
+	bool btn_restart;
 
 	int c, r, t;
 	int par;
