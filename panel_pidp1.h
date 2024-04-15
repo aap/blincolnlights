@@ -1,5 +1,3 @@
-void initGPIO(void);
-
 enum {
 	// sw0
 	SW_EXTEND	= 0400000,
@@ -59,4 +57,3 @@ struct Panel
 	// just for convenience
 	int psw2;
 };
-void *panelthread(void *arg);

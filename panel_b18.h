@@ -1,5 +1,3 @@
-void initGPIO(void);
-
 enum {
 	KEY_START       = 0x20000,
 	KEY_STOP        = 0x10000,
@@ -35,5 +33,3 @@ struct Panel
 	int sel1;
 	int sel2;
 };
-void *panelthread(void *arg);
-void delay(int ms);

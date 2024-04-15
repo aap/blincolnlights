@@ -1,5 +1,3 @@
-void initGPIO(void);
-
 enum {
 	// sw0	data right
 	// sw1	data left
@@ -66,4 +64,3 @@ struct Panel
 	int lights5;
 	int lights6;
 };
-void *panelthread(void *arg);
