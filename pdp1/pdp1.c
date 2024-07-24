@@ -335,13 +335,6 @@ spec(PDP1 *pdp)
 	// SP4
 	if(pdp->start_sw || pdp->continue_sw)
 		pdp->run = 1;
-
-	pdp->start_sw = 0;
-	pdp->sbm_start_sw = 0;
-	pdp->stop_sw = 0;
-	pdp->continue_sw = 0;
-	pdp->examine_sw = 0;
-	pdp->deposit_sw = 0;
 }
 
 void
