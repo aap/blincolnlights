@@ -160,7 +160,7 @@ readSwitches(Panel *p)
 	static u32 cycle = 0;
 
 	inRow();
-	int i = (cycle++) % 3;
+	int i = (cycle++) % 4;
 	(&p->sw0)[i] = readRow(8+i);
 }
 

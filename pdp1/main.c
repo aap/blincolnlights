@@ -16,12 +16,18 @@ Panel *getpanel(void);
 
 #define Edge(sw) (pdp->sw && !prev_##sw)
 
+void initmusic(void);
+void stopmusic(void);
+void svc_music(PDP1 *pdp);
+int domusic = 0;
+
 void
 emu(PDP1 *pdp, Panel *panel)
 {
 	pdp->panel = panel;
 
 	pwrclr(pdp);
+if(domusic) initmusic();
 
 	bool prev_start_sw;
 	bool prev_stop_sw;
@@ -65,13 +71,16 @@ emu(PDP1 *pdp, Panel *panel)
 			}
 
 			if(pdp->run)	// not really correct
+svc_music(pdp),
 				cycle(pdp);
 			else
+stopmusic(),
 				updatelights(pdp, panel);
 			throttle(pdp);
 			handleio(pdp);
 			pdp->simtime += 5000;
 		} else {
+stopmusic();
 			pwrclr(pdp);
 
 			lightsoff(panel);
@@ -98,6 +107,9 @@ netcmd(void *arg)
 			line[n] = 0;
 //			printf("<%s>\n", line);
 			char *r = handlecmd(pdp, line);
+//printf("reply: <%s>\n", r);
+			n = strlen(r);
+			r[n] = '\n';
 			write(fd, r, strlen(r));
 		}
 //		printf("closing\n");

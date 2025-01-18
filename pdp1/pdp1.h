@@ -121,6 +121,10 @@ struct PDP1
 	int typ_fd;
 	u64 typ_time;
 	u64 tyi_wait;
+
+	// spacewar controllers
+	int spcwar1;
+	int spcwar2;
 };
 
 #define IR pdp->ir

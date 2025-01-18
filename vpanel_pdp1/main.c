@@ -267,6 +267,8 @@ updatepanel(void)
 	if(keys[7].state == 2) sw |= KEY_FEED;
 	panel->sw2 = sw;
 
+	panel->sw3 = 0;	// no spacewar controllers for now
+
 	setnlights(panel->lights0, pc_l, 16, 0100000);
 	setnlights(panel->lights1, ma_l, 16, 0100000);
 	setnlights(panel->lights2, mb_l, 18, 0400000);

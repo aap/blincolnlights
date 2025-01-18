@@ -46,6 +46,7 @@ struct Panel
 	int sw0;
 	int sw1;
 	int sw2;
+	int sw3;	// controllers
 	int lights0;
 	int lights1;
 	int lights2;

@@ -1147,6 +1147,26 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		}
 		break;
 
+	case 011:       // spacewar controllers
+		// simple but stupid version for now
+		if(pulse) {
+			// LRTF
+			int p1 = 0;
+			int p2 = 0;
+			if(pdp->spcwar1&020) p1 |= 010;
+			if(pdp->spcwar1&010) p1 |= 004;
+			if(pdp->spcwar1&004) p1 |= 002;
+			if(pdp->spcwar1&002) p1 |= 001;
+			if(pdp->spcwar1&001) p1 |= 014;
+			if(pdp->spcwar2&020) p2 |= 010;
+			if(pdp->spcwar2&010) p2 |= 004;
+			if(pdp->spcwar2&004) p2 |= 002;
+			if(pdp->spcwar2&002) p2 |= 001;
+			if(pdp->spcwar2&001) p2 |= 014;
+			IO |= p1<<14 | p2;
+		}
+		break;
+
 	case 030:	// rrb
 		if(pulse) {
 			IO |= pdp->rb;
@@ -1338,7 +1358,7 @@ handleio(PDP1 *pdp)
 			if(y & 01000) y++;
 			x = (x+01000)&01777;
 			y = (y+01000)&01777;
-			int cmd = x | (y<<10) | (7<<20) | (dt<<23);
+			int cmd = x | (y<<10) | (5<<20) | (dt<<23);
 			pdp->dpy_last = pdp->simtime;
 			if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
 				pdp->dpy_fd = -1;
@@ -1425,72 +1445,6 @@ cli(PDP1 *pdp)
 
 		char *resp = handlecmd(pdp, line);
 		printf("%s\n", resp);
-
-#if 0
-		if(p = strchr(line, '\r'), p) *p = '\0';
-		if(p = strchr(line, '\n'), p) *p = '\0';
-
-		char **args = split(line, &n);
-
-		if(n > 0) {
-			// reader
-			if(strcmp(args[0], "r") == 0) {
-				close(pdp->r_fd);
-				pdp->r_fd = -1;
-				if(args[1]) {
-					pdp->r_fd = open(args[1], O_RDONLY);
-					if(pdp->r_fd < 0)
-						printf("couldn't open %s\n", args[1]);
-				}
-			}
-			// punch
-			else if(strcmp(args[0], "p") == 0) {
-				close(pdp->p_fd);
-				pdp->p_fd = -1;
-				if(args[1]) {
-					pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC, 0644);
-					if(pdp->p_fd < 0)
-						printf("couldn't open %s\n", args[1]);
-				}
-			}
-			// load
-			else if(strcmp(args[0], "l") == 0) {
-				static char *rimfile = nil;
-				int fd;
-				if(args[1]) {
-					free(rimfile);
-					rimfile = strdup(args[1]);
-				}
-				if(rimfile) {
-					fd = open(rimfile, O_RDONLY);
-					if(fd < 0) {
-						printf("couldn't open %s\n", rimfile);
-					} else {
-						readrim(pdp, fd);
-						close(fd);
-					}
-				} else
-					printf("no filename\n");
-			}
-			// help
-			else if(strcmp(args[0], "?") == 0 ||
-			        strcmp(args[0], "help") == 0) {
-				printf("r                     unmount tape from reader\n");
-				printf("r filename            mount tape in reader\n");
-				printf("p                     unmount tape from punch\n");
-				printf("p filename            mount tape in punch\n");
-				printf("l filename            load memory from RIM-file\n");
-				printf("muldiv                toggle type 10 mul-div option\n");
-			}
-			else if(strcmp(args[0], "muldiv") == 0) {
-				pdp->muldiv_sw = !pdp->muldiv_sw;
-				printf("mul-div now %s\n", pdp->muldiv_sw ? "on" : "off");
-			}
-		}
-
-		free(args[0]);
-		free(args);
-#endif
 	}
 }
 
@@ -1578,8 +1532,16 @@ handlecmd(PDP1 *pdp, char *line)
 			p += sprintf(p, "muldiv                toggle type 10 mul-div option");
 		}
 		else if(strcmp(args[0], "muldiv") == 0) {
-			pdp->muldiv_sw = !pdp->muldiv_sw;
-			sprintf(resp, "mul-div now %s\n", pdp->muldiv_sw ? "on" : "off");
+			if(args[1]) {
+				if(strcmp(args[1], "on") == 0 ||
+				   strcmp(args[1], "1") == 0)
+					pdp->muldiv_sw = 1;
+				else if(strcmp(args[1], "off") == 0 ||
+				   strcmp(args[1], "0") == 0)
+					pdp->muldiv_sw = 0;
+			} else
+				pdp->muldiv_sw = !pdp->muldiv_sw;
+			sprintf(resp, "mul-div now %s", pdp->muldiv_sw ? "on" : "off");
 		}
 		/* fiddle with lights */
 #if 0

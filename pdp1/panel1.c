@@ -8,6 +8,7 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	int sw0 = panel->sw0;
 	int sw1 = panel->sw1;
 	int sw2 = panel->sw2;
+	int sw3 = panel->sw3;
 
 	pdp->extend_sw = !!(sw0 & SW_EXTEND);
 	pdp->eta = sw0 & EXTMASK;
@@ -26,6 +27,9 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->examine_sw = !!(sw2 & KEY_EXAM);
 	pdp->deposit_sw = !!(sw2 & KEY_DEP);
 	pdp->readin_sw = !!(sw2 & KEY_READIN);
+
+	pdp->spcwar1 = sw3 & 037;
+	pdp->spcwar2 = (sw3>>13) & 037;
 }
 
 void
