@@ -138,6 +138,7 @@ pwrclr(PDP1 *pdp)
 	pdp->typ_time = NEVER;
 	pdp->tyi_wait = 0;
 
+	pdp->dpy_defl_time = NEVER;
 	pdp->dpy_time = NEVER;
 }
 
@@ -1143,7 +1144,8 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
-			pdp->dpy_time = pdp->simtime + US(50);
+			pdp->dpy_defl_time = pdp->simtime + US(35);
+			pdp->dpy_time = pdp->dpy_defl_time + US(15);
 		}
 		break;
 
@@ -1347,8 +1349,8 @@ handleio(PDP1 *pdp)
 	}
 
 	/* Display */
-	if(pdp->dpy_time < pdp->simtime) {
-		pdp->dpy_time = NEVER;
+	if(pdp->dpy_defl_time < pdp->simtime) {
+		pdp->dpy_defl_time = NEVER;
 		if(pdp->dpy_fd >= 0) {
 			agedisplay(pdp);
 			int x = pdp->dbx;
@@ -1363,6 +1365,9 @@ handleio(PDP1 *pdp)
 			if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
 				pdp->dpy_fd = -1;
 		}
+	}
+	if(pdp->dpy_time < pdp->simtime) {
+		pdp->dpy_time = NEVER;
 		if(pdp->dcp) pdp->ios = 1;
 	}
 }

@@ -87,6 +87,7 @@ struct PDP1
 	int dbx, dby;
 	// simulation
 	int dpy_fd;
+	u64 dpy_defl_time;
 	u64 dpy_time;
 	u64 dpy_last;
 
