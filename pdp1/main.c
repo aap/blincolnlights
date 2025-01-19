@@ -151,8 +151,64 @@ exitcleanup(void)
 }
 
 void
+readmem(const char *file, Word *mem, Word size)
+{
+	FILE *f;
+	char buf[100], *s;
+	Word a;
+	Word w;
+	if(f = fopen(file, "r"), f == nil)
+		return;
+	a = 0;
+	while(s = fgets(buf, 100, f)){
+		while(*s){
+			if(*s == ';')
+				break;
+			else if('0' <= *s && *s <= '7'){
+				w = strtol(s, &s, 8);
+				if(*s == ':'){
+					a = w;
+					s++;
+				}else if(a < size)
+					mem[a++] = w;
+				else
+					fprintf(stderr, "Address out of range: %o\n", a++);
+			}else
+				s++;
+		}
+	}
+	fclose(f);
+}
+
+void
+dumpmem(const char *file, Word *mem, Word size)
+{
+	FILE *f;
+	Word i, a;
+
+	if(f = fopen("coremem", "w"), f == nil)
+		return;
+
+	a = 0;
+	for(i = 0; i < size; i++)
+		if(mem[i] != 0){
+			if(a != i){
+				a = i;
+				fprintf(f, "%06o:\n", a);
+			}
+			fprintf(f, "%06o\n", mem[a++]);
+		}
+
+
+	fclose(f);
+}
+
+Word *memp;	// a bit ugly...
+int memsz;
+void
 inthandler(int sig)
 {
+	dumpmem("coremem", memp, memsz);
 	exit(0);
 }
 
@@ -183,11 +239,15 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
+	memp = pdp->core;
+	memsz = MAXMEM;
+
 	atexit(exitcleanup);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, inthandler);
 
 	memset(pdp, 0, sizeof(*pdp));
+	readmem("coremem", memp, memsz);
 
 	pdp->dpy_fd = dial(host, port);
 	if(pdp->dpy_fd < 0)
