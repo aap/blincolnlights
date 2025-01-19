@@ -93,6 +93,24 @@ stopmusic();
 }
 
 void*
+listendisp(void *arg)
+{
+	PDP1 *pdp = (PDP1*)arg;
+	int fd;
+	char line[1024];
+	int n;
+	for(;;) {
+		fd = serve1(3400);
+		if(pdp->dpy_fd >= 0) {
+			close(fd);
+		} else {
+			pdp->dpy_fd = fd;
+			nodelay(pdp->dpy_fd);
+		}
+	}
+}
+
+void*
 netcmd(void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
@@ -177,6 +195,7 @@ main(int argc, char *argv[])
 	nodelay(pdp->dpy_fd);
 
 	pthread_create(&th, NULL, netcmd, pdp);
+	pthread_create(&th, NULL, listendisp, pdp);
 
 //	const char *tape = "maindec/maindec1_20.rim";
 //	const char *tape = "tapes/circle.rim";
