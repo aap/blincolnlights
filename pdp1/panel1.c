@@ -75,6 +75,18 @@ lightsoff(Panel *panel)
 	panel->lights6 = 0;
 }
 
+void
+lightson(Panel *panel)
+{
+	panel->lights0 = 0777777;
+	panel->lights1 = 0777777;
+	panel->lights2 = 0777777;
+	panel->lights3 = 0777777;
+	panel->lights4 = 0777777;
+	panel->lights5 = 0777777;
+	panel->lights6 = 0777777;
+}
+
 Panel*
 getpanel(void)
 {

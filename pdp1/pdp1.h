@@ -119,7 +119,7 @@ struct PDP1
 	int tbb;
 	int tyo;
 	// simulation
-	int typ_fd;
+	FD typ_fd;
 	u64 typ_time;
 	u64 tyi_wait;
 

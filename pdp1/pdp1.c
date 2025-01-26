@@ -1258,6 +1258,23 @@ req(PDP1 *pdp, int chan)
 		pdp->b2 = 1;
 }
 
+u32 cmdbuf[128];
+u32 ncmds = 0;
+
+void
+dpycmd(PDP1 *pdp, u32 cmd)
+{
+	cmdbuf[ncmds++] = cmd;
+	if(ncmds == nelem(cmdbuf)) {
+		int n = write(pdp->dpy_fd, cmdbuf, sizeof(cmdbuf));
+		ncmds = 0;
+		if(n < (int)sizeof(cmdbuf)) {
+			close(pdp->dpy_fd);
+			pdp->dpy_fd = -1;
+		}
+	}
+}
+
 void
 handleio(PDP1 *pdp)
 {
@@ -1317,9 +1334,9 @@ handleio(PDP1 *pdp)
 		pdp->typ_time = NEVER;
 		if((pdp->tb&076) == 034)
 			pdp->tbb = pdp->tb & 1;
-		else if(pdp->typ_fd >= 0) {
+		else if(pdp->typ_fd.fd >= 0) {
 			char c = (pdp->tbb<<6) | pdp->tb;
-			write(pdp->typ_fd, &c, 1);
+			write(pdp->typ_fd.fd, &c, 1);
 		}
 		// this is really much more complicated
 		// and overlaps with the type-in logic
@@ -1327,13 +1344,14 @@ handleio(PDP1 *pdp)
 		if(pdp->tcp) pdp->ios = 1;
 		req(pdp, TTO_CHAN);
 	}
-	if(pdp->tyi_wait < pdp->simtime && hasinput(pdp->typ_fd)) {
+	if(pdp->tyi_wait < pdp->simtime && pdp->typ_fd.ready) {
 		char c;
-		if(read(pdp->typ_fd, &c, 1) <= 0) {
-			close(pdp->typ_fd);
-			pdp->typ_fd = -1;
+		if(read(pdp->typ_fd.fd, &c, 1) <= 0) {
+			closefd(&pdp->typ_fd);
+			pdp->typ_fd.fd = -1;
 			return;
 		}
+		waitfd(&pdp->typ_fd);
 		pdp->tb = 0;
 		// STROBE TYPE
 		pdp->tb |= c & 077;
@@ -1362,8 +1380,7 @@ handleio(PDP1 *pdp)
 			y = (y+01000)&01777;
 			int cmd = x | (y<<10) | (5<<20) | (dt<<23);
 			pdp->dpy_last = pdp->simtime;
-			if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
-				pdp->dpy_fd = -1;
+			dpycmd(pdp, cmd);
 		}
 	}
 	if(pdp->dpy_time < pdp->simtime) {
@@ -1375,13 +1392,16 @@ handleio(PDP1 *pdp)
 void
 agedisplay(PDP1 *pdp)
 {
+	if(pdp->dpy_fd < 0) {
+		pdp->dpy_last = pdp->simtime;
+		return;
+	}
 	int cmd = 511<<23;
 	assert(pdp->dpy_last <= pdp->simtime);
 	u64 dt = (pdp->simtime - pdp->dpy_last)/1000;
 	while(dt >= 511) {
 		pdp->dpy_last += 511*1000;
-		if(write(pdp->dpy_fd, &cmd, sizeof(cmd)) < 0)
-			pdp->dpy_fd = -1;
+		dpycmd(pdp, cmd);
 		dt = (pdp->simtime - pdp->dpy_last)/1000;
 	}
 }

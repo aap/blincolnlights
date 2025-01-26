@@ -12,6 +12,7 @@ typedef struct Panel Panel;
 void updateswitches(PDP1 *pdp, Panel *panel);
 void updatelights(PDP1 *pdp, Panel *panel);
 void lightsoff(Panel *panel);
+void lightson(Panel *panel);
 Panel *getpanel(void);
 
 #define Edge(sw) (pdp->sw && !prev_##sw)
@@ -83,6 +84,11 @@ stopmusic(),
 stopmusic();
 			pwrclr(pdp);
 
+if(pdp->start_sw && pdp->readin_sw) {
+	lightson(panel);
+	sleep(1);
+	exit(100);
+}
 			lightsoff(panel);
 
 			pdp->simtime = gettime();
@@ -143,13 +149,6 @@ usage(void)
 	exit(1);
 }
 
-static Panel *panel;
-void
-exitcleanup(void)
-{
-	lightsoff(panel);
-}
-
 void
 readmem(const char *file, Word *mem, Word size)
 {
@@ -203,12 +202,20 @@ dumpmem(const char *file, Word *mem, Word size)
 	fclose(f);
 }
 
-Word *memp;	// a bit ugly...
-int memsz;
+// a bit ugly...
+static Panel *panel;
+static Word *memp;
+static int memsz;
+void
+exitcleanup(void)
+{
+	dumpmem("coremem", memp, memsz);
+	lightsoff(panel);
+}
+
 void
 inthandler(int sig)
 {
-	dumpmem("coremem", memp, memsz);
 	exit(0);
 }
 
@@ -249,6 +256,8 @@ main(int argc, char *argv[])
 	memset(pdp, 0, sizeof(*pdp));
 	readmem("coremem", memp, memsz);
 
+	startpolling();
+
 	pdp->dpy_fd = dial(host, port);
 	if(pdp->dpy_fd < 0)
 		printf("can't open display\n");
@@ -270,9 +279,11 @@ main(int argc, char *argv[])
 
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC, 0644);
 
-	pdp->typ_fd = open("/tmp/typ", O_RDWR);
-	if(pdp->typ_fd < 0)
+	pdp->typ_fd.id = -1;
+	pdp->typ_fd.fd = open("/tmp/typ", O_RDWR);
+	if(pdp->typ_fd.fd < 0)
 		printf("can't open /tmp/typ\n");
+	waitfd(&pdp->typ_fd);
 
 	emu(pdp, panel);
 	return 0;	// can't happen
