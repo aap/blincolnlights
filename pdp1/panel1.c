@@ -35,7 +35,7 @@ updateswitches(PDP1 *pdp, Panel *panel)
 void
 updatelights(PDP1 *pdp, Panel *panel)
 {
-	int l5;
+	int l5, l8, l9;
 	l5 = 0;
 	if(pdp->run) l5 |= L5_RUN;
 	if(pdp->cyc) l5 |= L5_CYC;
@@ -54,6 +54,29 @@ updatelights(PDP1 *pdp, Panel *panel)
 	if(pdp->single_cyc_sw) l5 |= L5_SSTEP;
 	if(pdp->single_inst_sw) l5 |= L5_SINST;
 
+	l8 = 0;
+	if(pdp->rby) l8 |= 0400000;
+	if(pdp->rcp) l8 |= 0200000;
+	if(pdp->rc&1) l8 |= 0100000;
+	if(pdp->rc&2) l8 |= 0040000;
+	if(pdp->rcl) l8 |= 0020000;
+	if(pdp->r) l8 |= 0010000;
+	if(pdp->rs) l8 |= 0004000;
+	if(pdp->w) l8 |= 0002000;
+	if(pdp->i) l8 |= 0001000;
+	l8 |= pdp->pb<<2;
+
+	l9 = 0;
+	if(pdp->tbs) l9 |= 0400000;
+	if(pdp->tbb) l9 |= 0200000;
+	if(pdp->tyo) l9 |= 0100000;
+	if(pdp->tcp) l9 |= 0040000;
+	l9 |= pdp->tb << 8;
+	if(pdp->punon) l9 |= 0000200;
+	if(pdp->pcp) l9 |= 0000100;
+	if(pdp->df2) l9 |= 0000040;
+	if(pdp->ov2) l9 |= 0000020;
+
 	panel->lights0 = pdp->epc | PC;
 	panel->lights1 = pdp->ema | MA;
 	panel->lights2 = MB;
@@ -61,6 +84,9 @@ updatelights(PDP1 *pdp, Panel *panel)
 	panel->lights4 = IO;
 	panel->lights5 = l5;
 	panel->lights6 = pdp->ir<<13 | pdp->ss<<6 | pdp->pf;
+	panel->lights7 = pdp->rb;
+	panel->lights8 = l8;
+	panel->lights9 = l9;
 }
 
 void
@@ -73,6 +99,9 @@ lightsoff(Panel *panel)
 	panel->lights4 = 0;
 	panel->lights5 = 0;
 	panel->lights6 = 0;
+	panel->lights7 = 0;
+	panel->lights8 = 0;
+	panel->lights9 = 0;
 }
 
 void
@@ -85,6 +114,9 @@ lightson(Panel *panel)
 	panel->lights4 = 0777777;
 	panel->lights5 = 0777777;
 	panel->lights6 = 0777777;
+	panel->lights7 = 0777777;
+	panel->lights8 = 0777777;
+	panel->lights9 = 0777777;
 }
 
 Panel*

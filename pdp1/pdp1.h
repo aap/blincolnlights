@@ -56,6 +56,8 @@ struct PDP1
 	int ss;
 	int pf;
 
+	int r, rs, w, i;
+
 	// seq break
 	int sbs16;	// 16 channel, type 20
 	// one bit per channel if type 20

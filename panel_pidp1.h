@@ -54,6 +54,10 @@ struct Panel
 	int lights4;
 	int lights5;
 	int lights6;
+	// IO panel
+	int lights7;
+	int lights8;
+	int lights9;
 
 	// just for convenience
 	int psw2;

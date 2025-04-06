@@ -80,6 +80,20 @@ writemem(PDP1 *pdp)
 	pdp->core[(pdp->ema|MA)%MAXMEM] = MB;
 }
 
+static void mop2379(PDP1 *pdp) {
+	pdp->i = pdp->w;
+	pdp->w = pdp->rs;
+	pdp->rs = pdp->r;
+	pdp->r = !pdp->w;	// actually !pdp->rs but already clobbered
+}
+static void inhibit(PDP1 *pdp) { pdp->i = 1; }
+static void memclr(PDP1 *pdp) {
+	pdp->r = 0;
+	pdp->rs = 0;
+	pdp->w = 0;
+	pdp->i = 0;
+}
+
 void
 pwrclr(PDP1 *pdp)
 {
@@ -103,6 +117,7 @@ pwrclr(PDP1 *pdp)
 	pdp->ios = rand() & 1;
 	pdp->ioh = rand() & 1;
 	pdp->pf = rand() & 077;
+	memclr(pdp);
 
 	if(pdp->sbs16) {
 		pdp->b4 = rand() & 0177777;
@@ -602,6 +617,7 @@ cycle0(PDP1 *pdp)
 	TP(1)
 
 	// TP2
+	mop2379(pdp);
 	if(IR_SHRO && (MB & B10)) shro(pdp);
 	pc_inc(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
@@ -609,6 +625,7 @@ cycle0(PDP1 *pdp)
 	TP(2)
 
 	// TP3
+	mop2379(pdp);
 	if(IR_SHRO && (MB & B9)) shro(pdp);
 	MB = 0;
 	TP(3)
@@ -639,6 +656,7 @@ cycle0(PDP1 *pdp)
 	TP(6a)
 
 	// TP7
+	mop2379(pdp);
 	if(IR_SHRO && (MB & B17)) shro(pdp);
 	if(IR_JSP && !pdp->df1 || IR_LAW || IR_OPR && (MB & B10)) AC = 0;
 	if(IR_OPR && (MB & B6)) IO = 0;
@@ -649,6 +667,7 @@ cycle0(PDP1 *pdp)
 	TP(7)
 
 	// TP8
+	inhibit(pdp);
 	if(!pdp->df1) {
 		if(IR_JSP) pc_to_ac(pdp), clr_pc(pdp);
 		if(IR_JMP) clr_pc(pdp);
@@ -676,6 +695,7 @@ cycle0(PDP1 *pdp)
 	TP(8)
 
 	// TP9
+	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(!pdp->df1 && (IR_JMP || IR_JSP)) mb_to_pc(pdp);
 	if(IR_SKIP && (MB & B8)) pdp->ov1 = 0;
@@ -698,6 +718,7 @@ cycle0(PDP1 *pdp)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	memclr(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(pdp->df1 || pdp->ir < 030) pdp->cyc = 1;
 	if(pdp->sbm && pdp->req) {
@@ -733,6 +754,7 @@ defer(PDP1 *pdp)
 	TP(1)
 
 	// TP2
+	mop2379(pdp);
 	if(pdp->sbm && IR_JMP && pdp->epc == 0) {
 		if(pdp->sbs16) {
 			if((MB & 07703) == 1) {
@@ -753,6 +775,7 @@ defer(PDP1 *pdp)
 	TP(2)
 
 	// TP3
+	mop2379(pdp);
 	MB = 0;
 	TP(3)
 
@@ -770,7 +793,9 @@ defer(PDP1 *pdp)
 		pdp->df2 = 1;
 		TP(6)
 		TP(6a)
+		mop2379(pdp);
 		TP(7)
+		inhibit(pdp);
 		TP(8)
 	} else {
 		TP(6)
@@ -778,9 +803,11 @@ defer(PDP1 *pdp)
 
 		// TP7
 		if(IR_JSP) AC = 0;
+		mop2379(pdp);
 		TP(7)
 
 		// TP8
+		inhibit(pdp);
 		if(IR_JSP) pc_to_ac(pdp), clr_pc(pdp);
 		if(IR_JMP) clr_pc(pdp);
 		TP(8)
@@ -790,6 +817,7 @@ defer(PDP1 *pdp)
 		clrmd(pdp);
 	}
 	// TP9
+	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(IR_INCORR ||
 	   pdp->single_cyc_sw ||
@@ -807,6 +835,7 @@ defer(PDP1 *pdp)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	memclr(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(!pdp->df2) {
 		pdp->df1 = 0;
@@ -850,6 +879,7 @@ cycle1(PDP1 *pdp)
 	TP(1)
 
 	// TP2
+	mop2379(pdp);
 	if(IR_DIS && !(IO & B17)) {
 		if(AC == 0777777) AC = 1;
 		else AC++;
@@ -861,6 +891,7 @@ cycle1(PDP1 *pdp)
 	TP(2)
 
 	// TP3
+	mop2379(pdp);
 	if(IR_MUL)
 		IO |= MB;
 	MB = 0;
@@ -900,6 +931,7 @@ cycle1(PDP1 *pdp)
 	TP(6a)
 
 	// TP7
+	mop2379(pdp);
 	if(IR_DAC || IR_IDX || IR_ISP) MB = AC;
 	if(IR_CALJDA) MB = AC, AC = 0;
 	if(IR_DAP) MB = MB&0770000 | AC&0007777;
@@ -908,6 +940,7 @@ cycle1(PDP1 *pdp)
 	TP(7)
 
 	// TP8
+	inhibit(pdp);
 	if(IR_MUS)
 		mul_shift(pdp);
 	if(IR_CALJDA) pc_to_ac(pdp), clr_pc(pdp);
@@ -917,6 +950,7 @@ cycle1(PDP1 *pdp)
 	TP(8)
 
 	// TP9
+	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(IR_CALJDA) ma_to_pc(pdp);
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
@@ -937,6 +971,7 @@ cycle1(PDP1 *pdp)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	memclr(pdp);
 	if(pdp->ov2) pdp->ov1 = 1;
 	pdp->ov2 = 0;
 	pdp->cyc = 0;
@@ -991,12 +1026,14 @@ brkcycle(PDP1 *pdp)
 	TP(1)
 
 	// TP2
+	mop2379(pdp);
 	if(IR_SHRO && (MB & B10)) shro(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
 	TP(2)
 
 	// TP3
+	mop2379(pdp);
 	if(IR_SHRO && (MB & B9)) shro(pdp);
 	MB = 0;
 	TP(3)
@@ -1017,16 +1054,19 @@ brkcycle(PDP1 *pdp)
 	TP(6a)
 
 	// TP7
+	mop2379(pdp);
 	if(pdp->bc == 1) MB = AC, AC = 0;
 	if(pdp->bc == 2) MB = AC;
 	if(pdp->bc == 3) MB |= IO;
 	TP(7)
 
 	// TP8
+	inhibit(pdp);
 	if(pdp->bc == 1) pc_to_ac(pdp), clr_pc(pdp);
 	TP(8)
 
 	// TP9
+	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(pdp->bc == 1) ma_to_pc(pdp);
 	if(pdp->single_cyc_sw ||
@@ -1041,6 +1081,7 @@ brkcycle(PDP1 *pdp)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	memclr(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
 	if(pdp->bc == 3) pdp->cyc = 0;
