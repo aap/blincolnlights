@@ -134,6 +134,7 @@ netcmd(void *arg)
 //printf("reply: <%s>\n", r);
 			n = strlen(r);
 			r[n] = '\n';
+			r[n+1] = '\0';
 			write(fd, r, strlen(r));
 		}
 //		printf("closing\n");
