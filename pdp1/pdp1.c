@@ -1609,34 +1609,6 @@ handlecmd(PDP1 *pdp, char *line)
 				pdp->muldiv_sw = !pdp->muldiv_sw;
 			sprintf(resp, "mul-div now %s", pdp->muldiv_sw ? "on" : "off");
 		}
-		/* fiddle with lights */
-#if 0
-		else if(strcmp(args[0], "br") == 0) {
-			extern float rise;
-			if(args[1])
-				rise = atof(args[1]);
-			else
-				rise = 0.012f;
-		}
-		else if(strcmp(args[0], "bf") == 0) {
-			extern float fall;
-			if(args[1])
-				fall = atof(args[1]);
-			else
-				fall = 0.995f;
-		}
-		else if(strcmp(args[0], "bp") == 0) {
-			extern float power;
-			if(args[1])
-				power = atof(args[1]);
-			else
-				power = 1.0f;
-		}
-		else if(strcmp(args[0], "sw") == 0) {
-			extern int lightswitch;
-			lightswitch ^= 1;
-		}
-#endif
 	}
 
 	free(args[0]);
