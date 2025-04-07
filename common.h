@@ -20,6 +20,11 @@ void panic(const char *fmt, ...);
 int hasinput(int fd);
 int dial(const char *host, int port);
 int serve1(int port);
+struct PortHandler {
+	int port;
+	void (*handle)(int fd, void *arg);
+};
+void serveN(struct PortHandler *ports, int nports, void *arg);
 void nodelay(int fd);
 
 void *createseg(const char *name, size_t sz);

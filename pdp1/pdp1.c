@@ -1328,6 +1328,9 @@ handleio(PDP1 *pdp)
 			pdp->r_fd = -1;
 			return;
 		}
+		// write back in case this is over a socket
+		// and we need to synchronize
+		write(pdp->r_fd, &c, 1);
 		if(pdp->rc && (!pdp->rby || c&0200)) {
 			// STROBE PETR
 			pdp->rcl = 0;

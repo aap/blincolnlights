@@ -98,48 +98,57 @@ if(pdp->start_sw && pdp->readin_sw) {
 	}
 }
 
-void*
-listendisp(void *arg)
+void
+handlenetcmd(int fd, void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	int fd;
 	char line[1024];
 	int n;
-	for(;;) {
-		fd = serve1(3400);
-		if(pdp->dpy_fd >= 0) {
-			close(fd);
-		} else {
-			pdp->dpy_fd = fd;
-			nodelay(pdp->dpy_fd);
-		}
+	while(n = read(fd, line, sizeof(line)), n > 0) {
+//		printf("got %d bytes\n", n);
+		line[n] = 0;
+//		printf("<%s>\n", line);
+		char *r = handlecmd(pdp, line);
+//printf("reply: <%s>\n", r);
+		n = strlen(r);
+		r[n] = '\n';
+		r[n+1] = '\0';
+		write(fd, r, strlen(r));
+	}
+//	printf("closing\n");
+	close(fd);
+}
+
+void
+handledpy(int fd, void *arg)
+{
+	PDP1 *pdp = (PDP1*)arg;
+	if(pdp->dpy_fd >= 0) {
+		close(fd);
+	} else {
+		pdp->dpy_fd = fd;
+		nodelay(pdp->dpy_fd);
 	}
 }
 
-void*
-netcmd(void *arg)
+void
+handleptr(int fd, void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	int fd;
-	char line[1024];
-	int n;
-	for(;;) {
-		fd = serve1(1234);
-//		printf("connect %d\n", fd);
-		while(n = read(fd, line, sizeof(line)), n > 0) {
-//			printf("got %d bytes\n", n);
-			line[n] = 0;
-//			printf("<%s>\n", line);
-			char *r = handlecmd(pdp, line);
-//printf("reply: <%s>\n", r);
-			n = strlen(r);
-			r[n] = '\n';
-			r[n+1] = '\0';
-			write(fd, r, strlen(r));
-		}
-//		printf("closing\n");
-		close(fd);
-	}
+	close(pdp->r_fd);
+	pdp->r_fd = fd;
+	nodelay(pdp->r_fd);
+}
+
+void*
+netthread(void *arg)
+{
+	struct PortHandler ports[] = {
+		{ 1234, handlenetcmd },
+		{ 3400, handledpy },
+		{ 8100, handleptr },
+	};
+	serveN(ports, nelem(ports), arg);
 }
 
 char *argv0;
@@ -264,8 +273,7 @@ main(int argc, char *argv[])
 		printf("can't open display\n");
 	nodelay(pdp->dpy_fd);
 
-	pthread_create(&th, NULL, netcmd, pdp);
-	pthread_create(&th, NULL, listendisp, pdp);
+	pthread_create(&th, NULL, netthread, pdp);
 
 //	const char *tape = "maindec/maindec1_20.rim";
 //	const char *tape = "tapes/circle.rim";
