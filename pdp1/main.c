@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include <sys/socket.h>
+
 #include <signal.h>
 
 typedef struct Panel Panel;
@@ -146,7 +148,7 @@ netthread(void *arg)
 	struct PortHandler ports[] = {
 		{ 1234, handlenetcmd },
 		{ 3400, handledpy },
-		{ 8100, handleptr },
+		{ 8101, handleptr },
 	};
 	serveN(ports, nelem(ports), arg);
 }
@@ -229,6 +231,7 @@ inthandler(int sig)
 	exit(0);
 }
 
+
 int
 main(int argc, char *argv[])
 {
@@ -268,10 +271,11 @@ main(int argc, char *argv[])
 
 	startpolling();
 
-	pdp->dpy_fd = dial(host, port);
-	if(pdp->dpy_fd < 0)
-		printf("can't open display\n");
-	nodelay(pdp->dpy_fd);
+	pdp->dpy_fd = -1;
+//	pdp->dpy_fd = dial(host, port);
+//	if(pdp->dpy_fd < 0)
+//		printf("can't open display\n");
+//	nodelay(pdp->dpy_fd);
 
 	pthread_create(&th, NULL, netthread, pdp);
 
@@ -289,10 +293,14 @@ main(int argc, char *argv[])
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC, 0644);
 
 	pdp->typ_fd.id = -1;
-	pdp->typ_fd.fd = open("/tmp/typ", O_RDWR);
-	if(pdp->typ_fd.fd < 0)
-		printf("can't open /tmp/typ\n");
+	int fd[2];
+	socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+	pdp->typ_fd.fd = fd[0];
+//	pdp->typ_fd.fd = open("/tmp/typ", O_RDWR);
+//	if(pdp->typ_fd.fd < 0)
+//		printf("can't open /tmp/typ\n");
 	waitfd(&pdp->typ_fd);
+	typtelnet(fd[1]);
 
 	emu(pdp, panel);
 	return 0;	// can't happen

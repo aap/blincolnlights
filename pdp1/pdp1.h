@@ -185,3 +185,5 @@ void agedisplay(PDP1 *pdp);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
 char *handlecmd(PDP1 *pdp, char *line);
+
+void typtelnet(int fd);
