@@ -110,8 +110,10 @@ struct PDP1
 	int pcp;
 	int pb;
 	int punon;
+	bool tape_feed;
 	// simulation
 	u64 p_time;
+	u64 feed_time;
 	int p_fd;
 
 	// typewriter

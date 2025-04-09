@@ -28,6 +28,8 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->deposit_sw = !!(sw2 & KEY_DEP);
 	pdp->readin_sw = !!(sw2 & KEY_READIN);
 
+	pdp->tape_feed = !!(sw2 & KEY_FEED);
+
 	pdp->spcwar1 = sw3 & 037;
 	pdp->spcwar2 = (sw3>>13) & 037;
 }

@@ -263,8 +263,8 @@ updatepanel(void)
 	if(keys[4].state == 2) sw |= KEY_DEP;
 	if(keys[5].state == 1) sw |= KEY_READIN;
 	if(keys[6].state == 1) sw |= KEY_READER;
-	if(keys[7].state == 1) sw |= KEY_READER_UP;
-	if(keys[7].state == 2) sw |= KEY_FEED;
+	if(keys[6].state == 2) sw |= KEY_READER_UP;
+	if(keys[7].state == 1) sw |= KEY_FEED;
 	panel->sw2 = sw;
 
 	panel->sw3 = 0;	// no spacewar controllers for now

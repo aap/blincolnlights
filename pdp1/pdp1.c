@@ -146,6 +146,7 @@ pwrclr(PDP1 *pdp)
 
 	pdp->punon = 0;
 	pdp->p_time = NEVER;
+	pdp->feed_time = 0;
 
 	pdp->tbs = 0;
 	pdp->tbb = 0;
@@ -1370,6 +1371,12 @@ handleio(PDP1 *pdp)
 		}
 		if(pdp->pcp) pdp->ios = 1;
 		req(pdp, PUN_CHAN);
+	} else if(pdp->tape_feed && pdp->feed_time < pdp->simtime) {
+		pdp->feed_time = pdp->simtime + PDLY;
+		if(pdp->p_fd >= 0) {
+			char c = 0;
+			write(pdp->p_fd, &c, 1);
+		}
 	}
 
 	/* Typewriter */
