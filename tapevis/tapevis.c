@@ -406,7 +406,7 @@ main(int argc, char *argv[])
 	window = SDL_CreateWindow("Paper tape",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		WIDTH, 2*HEIGHT + GAP,
-		SDL_WINDOW_SHOWN);
+		SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 	if(window == nil) {
 		fprintf(stderr, "Window could not be created! SDL_Error: %s\n", SDL_GetError());
 		return 1;
