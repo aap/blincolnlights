@@ -11,6 +11,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include <poll.h>
 
@@ -203,6 +205,10 @@ void
 initptp(void)
 {
 	ptpfd = open("/tmp/ptpunch", O_CREAT|O_WRONLY|O_TRUNC, 0644);
+	if(ptpfd < 0) {
+		fprintf(stderr, "can't open /tmp/ptpunch\n");
+		exit(1);
+	}
 	for(int i = 0; i < ptpbuflen; i++)
 		ptpbuf[i] = -1;
 }
@@ -247,65 +253,96 @@ connectptp(struct pollfd *pfd)
 	}
 }
 
+struct pollfd pfds[5];
+
+void
+cli(char *line, int n)
+{
+	char *p;
+
+	if(p = strchr(line, '\r'), p) *p = '\0';
+	if(p = strchr(line, '\n'), p) *p = '\0';
+
+	char **args = split(line, &n);
+	if(n > 0) {
+		if(strcmp(args[0], "r") == 0) {
+			disconnectptr(&pfds[1]);
+			unmountptr();
+			if(args[1]) {
+				mountptr(args[1]);
+				if(ptrbuflen > 0)
+					connectptr(&pfds[1]);
+			}
+		}
+		else if(strcmp(args[0], "p") == 0) {
+			disconnectptp(&pfds[2]);
+			if(args[1])
+				fileptp(args[1]);
+			else
+				initptp();
+			connectptp(&pfds[2]);
+		}
+	}
+}
+
 void*
 tapethread(void *arg)
 {
 	char c;
-	struct pollfd pfds[3];
 	memset(pfds, 0, sizeof(pfds));
 
 	pfds[0].fd = 0;
 	pfds[0].events = POLLIN;
-
 	pfds[1].fd = -1;
 	pfds[2].fd = -1;
+	pfds[3].fd = socketlisten(1050);
+	pfds[3].events = POLLIN;
+	pfds[4].fd = -1;
+
 
 	if(ptrbuflen > 0)
 		connectptr(&pfds[1]);
-	if(ptpfd >= 0)
-		connectptp(&pfds[2]);
+	connectptp(&pfds[2]);
 
+	int n;
+	char line[1024];
 	for(;;) {
-		int ret = poll(pfds, 3, -1);
+		int ret = poll(pfds, nelem(pfds), -1);
 		if(ret < 0)
 			exit(0);
 		if(ret == 0)
 			continue;
 
-		// handle cli
-		if(pfds[0].revents & POLLIN) {
-			int n;
-			static char line[1024];
-			char *p;
+		// accept cli connection
+		if(pfds[3].revents & POLLIN) {
+			struct sockaddr_in client;
+			socklen_t len = sizeof(client);
+			pfds[4].fd = accept(pfds[3].fd, (struct sockaddr*)&client, &len);
+			if(pfds[4].fd >= 0)
+				pfds[4].events = POLLIN;
+		}
 
+		// handle network cli
+		else if(pfds[4].revents & POLLIN) {
+                        n = read(pfds[4].fd, line, sizeof(line));
+			if(n <= 0) {
+				close(pfds[4].fd);
+				pfds[4].fd = -1;
+				pfds[4].events = 0;
+			}
+			if(n < sizeof(line))
+				line[n] = '\0';
+			cli(line, n);
+		}
+
+		// handle cli
+		else if(pfds[0].revents & POLLIN) {
 			n = read(pfds[0].fd, line, sizeof(line));
 			if(n <= 0)
 				continue;
 			if(n < sizeof(line))
 				line[n] = '\0';
-			if(p = strchr(line, '\r'), p) *p = '\0';
-			if(p = strchr(line, '\n'), p) *p = '\0';
-
-			char **args = split(line, &n);
-			if(n > 0) {
-				if(strcmp(args[0], "r") == 0) {
-					disconnectptr(&pfds[1]);
-					unmountptr();
-					if(args[1]) {
-						mountptr(args[1]);
-						if(ptrbuflen > 0)
-							connectptr(&pfds[1]);
-					}
-				}
-				else if(strcmp(args[0], "p") == 0) {
-					disconnectptp(&pfds[2]);
-					if(args[1])
-						fileptp(args[1]);
-					else
-						initptp();
-					connectptp(&pfds[2]);
-				}
-			}
+			cli(line, n);
 		}
 
 		// handle reader
@@ -322,12 +359,13 @@ tapethread(void *arg)
 		// handle punch
 		else if(pfds[2].revents & POLLIN) {
 			if(read(pfds[2].fd, &c, 1) <= 0) {
-				// eh?
+				disconnectptp(&pfds[2]);
+				initptp();
+				connectptp(&pfds[2]);
 				continue;
 			}
 			memcpy(ptpbuf+1, ptpbuf, (ptpbuflen-1)*sizeof(*ptpbuf));
 			ptpbuf[0] = c&0377;
-			assert(ptpfd >= 0);
 			write(ptpfd, &c, 1);
 		}
 	}

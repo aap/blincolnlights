@@ -46,6 +46,35 @@ hasinput(int fd)
 }
 
 int
+socketlisten(int port)
+{
+	int x;
+	struct sockaddr_in server;
+	int fd;
+
+	fd = socket(AF_INET, SOCK_STREAM, 0);
+	if(fd < 0) {
+		perror("error: socket");
+		return -1;
+	}
+
+	x = 1;
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (void *)&x, sizeof x);
+
+	memset(&server, 0, sizeof(server));
+	server.sin_family = AF_INET;
+	server.sin_addr.s_addr = INADDR_ANY;
+	server.sin_port = htons(port);
+	if(bind(fd, (struct sockaddr*)&server, sizeof(server)) < 0) {
+		close(fd);
+		perror("error: bind");
+		return -1;
+	}
+	listen(fd, 1);
+	return fd;
+}
+
+int
 dial(const char *host, int port)
 {
 	char portstr[32];
@@ -84,27 +113,12 @@ serve1(int port)
 {
 	int sockfd, confd;
 	socklen_t len;
-	struct sockaddr_in server, client;
-	int x;
+	struct sockaddr_in client;
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if(sockfd < 0){
-		perror("error: socket");
+	sockfd = socketlisten(port);
+	if(sockfd < 0)
 		return -1;
-	}
 
-	x = 1;
-	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (void *)&x, sizeof x);
-
-	memset(&server, 0, sizeof(server));
-	server.sin_family = AF_INET;
-	server.sin_addr.s_addr = INADDR_ANY;
-	server.sin_port = htons(port);
-	if(bind(sockfd, (struct sockaddr*)&server, sizeof(server)) < 0){
-		perror("error: bind");
-		return -1;
-	}
-	listen(sockfd, 5);
 	len = sizeof(client);
 	confd = accept(sockfd, (struct sockaddr*)&client, &len);
 	close(sockfd);
@@ -118,39 +132,19 @@ serve1(int port)
 void
 serveN(struct PortHandler *ports, int nports, void *arg)
 {
-	int i, x;
+	int i;
 	int confd;
 	struct pollfd pfds[100];
-	struct sockaddr_in server, client;
+	struct sockaddr_in client;
 	socklen_t len;
 
 	// create and listen on sockets for the given ports
 	for(i = 0; i < nports; i++) {
 		pfds[i].revents = 0;
 		pfds[i].events = 0;
-		pfds[i].fd = -1;
-
-		pfds[i].fd = socket(AF_INET, SOCK_STREAM, 0);
-		if(pfds[i].fd < 0) {
-			perror("error: socket");
-			continue;
-		}
-
-		x = 1;
-		setsockopt(pfds[i].fd, SOL_SOCKET, SO_REUSEADDR, (void *)&x, sizeof x);
-
-		memset(&server, 0, sizeof(server));
-		server.sin_family = AF_INET;
-		server.sin_addr.s_addr = INADDR_ANY;
-		server.sin_port = htons(ports[i].port);
-		if(bind(pfds[i].fd, (struct sockaddr*)&server, sizeof(server)) < 0) {
-			perror("error: bind");
-			pfds[i].fd = -1;
-			continue;
-		}
-		listen(pfds[i].fd, 1);
-
-		pfds[i].events = POLLIN;
+		pfds[i].fd = socketlisten(ports[i].port);
+		if(pfds[i].fd >= 0)
+			pfds[i].events = POLLIN;
 	}
 
 	// now poll to accept connections and hand off to handle function
