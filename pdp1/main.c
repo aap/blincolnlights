@@ -142,13 +142,24 @@ handleptr(int fd, void *arg)
 	nodelay(pdp->r_fd);
 }
 
+void
+handleptp(int fd, void *arg)
+{
+	PDP1 *pdp = (PDP1*)arg;
+	close(pdp->p_fd);
+	pdp->p_fd = fd;
+	nodelay(pdp->p_fd);
+}
+
 void*
 netthread(void *arg)
 {
 	struct PortHandler ports[] = {
-		{ 1234, handlenetcmd },
+		{ 1040, handlenetcmd },
+		// 1041 is typewriter
+		{ 1042, handleptr },
+		{ 1043, handleptp },
 		{ 3400, handledpy },
-		{ 8101, handleptr },
 	};
 	serveN(ports, nelem(ports), arg);
 }
@@ -300,7 +311,7 @@ main(int argc, char *argv[])
 //	if(pdp->typ_fd.fd < 0)
 //		printf("can't open /tmp/typ\n");
 	waitfd(&pdp->typ_fd);
-	typtelnet(fd[1]);
+	typtelnet(1041, fd[1]);
 
 	emu(pdp, panel);
 	return 0;	// can't happen

@@ -222,13 +222,14 @@ cmd(int fd, int a, int b)
 	if(b >= 0) write(fd, &cb, 1);
 }
 
+static int typport;
 static int typfd;
 
 void*
 telthread(void *arg)
 {
 	for(;;) {
-		int telfd = serve1(8100);
+		int telfd = serve1(typport);
 		cmd(telfd, WILL, XMITBIN);
 		cmd(telfd, DO, XMITBIN);
 		cmd(telfd, WILL, ECHO_);
@@ -243,9 +244,10 @@ telthread(void *arg)
 }
 
 void
-typtelnet(int fd)
+typtelnet(int port, int fd)
 {
 	pthread_t th;
+	typport = port;
 	typfd = fd;
 	pthread_create(&th, NULL, telthread, NULL);
 }
