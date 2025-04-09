@@ -64,7 +64,7 @@ updatelights(PDP1 *pdp, Panel *panel)
 	if(pdp->rs) l8 |= 0004000;
 	if(pdp->w) l8 |= 0002000;
 	if(pdp->i) l8 |= 0001000;
-	l8 |= pdp->pb<<2;
+	l8 |= pdp->pb<<1;
 
 	l9 = 0;
 	if(pdp->tbs) l9 |= 0400000;
