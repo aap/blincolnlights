@@ -19,9 +19,11 @@
 #define nil NULL
 char *argv0;
 
+SDL_Window *window;
 #define HEIGHT 130
 #define WIDTH 1000
 #define GAP 20
+
 
 unsigned char *ptrbuf;
 int ptrbuflen;
@@ -49,24 +51,33 @@ draw(SDL_Renderer *renderer)
 	SDL_SetRenderDrawColor(renderer, 80, 80, 80, 255);
 	SDL_RenderClear(renderer);
 
+	int width, height, gap;
+	SDL_GetWindowSize(window, &width, &height);
+	gap = height/50;
+	height = (height-gap)/2;
+
 	SDL_Rect rect;
 	rect.x = 0;
 	rect.y = 0;
-	rect.w = WIDTH;
-	rect.h = HEIGHT;
+	rect.w = width;
+	rect.h = height;
 
-	int r = 5;
-	int space = HEIGHT/10;
+	int space = height/10;
+	if(space < 4) space = 4;
+	// heuristics
+	int r = space/2 - 1;
+	int fr = r/2 + 1;
+	if(fr == r) fr--;
 
 	int i = ptrpos - 10;
 	int c;
 
-	int punchpos = WIDTH-5*space;
+	int punchpos = width-5*space;
 	int readpos = 10*space;
 
 	SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-	SDL_RenderDrawLine(renderer, readpos, 0, readpos, HEIGHT+GAP);
-	SDL_RenderDrawLine(renderer, punchpos, HEIGHT, punchpos, 2*HEIGHT+GAP);
+	SDL_RenderDrawLine(renderer, readpos, 0, readpos, height+gap);
+	SDL_RenderDrawLine(renderer, punchpos, height, punchpos, 2*height+gap);
 
 	// reader
 	int yoff = 0;
@@ -74,12 +85,12 @@ draw(SDL_Renderer *renderer)
 		SDL_SetRenderDrawColor(renderer, 255, 255, 176, 255);
 		rect.x = i < 0 ? -i*space : 0;
 		rect.w = (ptrbuflen-i)*space - rect.x;
-		if(rect.w > WIDTH)
-			rect.w = WIDTH;
+		if(rect.w > width)
+			rect.w = width;
 		rect.y = yoff;
 		SDL_RenderFillRect(renderer, &rect);
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-		for(int x = space/2; x < WIDTH+2*r; x += space, i++) {
+		for(int x = space/2; x < width+2*r; x += space, i++) {
 // we have a bit of a race here...hopefully ok for now
 			if(i >= 0 && i < ptrbuflen)
 				c = ptrbuf[i];
@@ -88,7 +99,7 @@ draw(SDL_Renderer *renderer)
 			if(c & 1) drawcircle(renderer, x, yoff + 1*space, r);
 			if(c & 2) drawcircle(renderer, x, yoff + 2*space, r);
 			if(c & 4) drawcircle(renderer, x, yoff + 3*space, r);
-			drawcircle(renderer, x, yoff + 4*space, 3);
+			drawcircle(renderer, x, yoff + 4*space, fr);
 			if(c & 010) drawcircle(renderer, x, yoff + 5*space, r);
 			if(c & 020) drawcircle(renderer, x, yoff + 6*space, r);
 			if(c & 040) drawcircle(renderer, x, yoff + 7*space, r);
@@ -96,7 +107,7 @@ draw(SDL_Renderer *renderer)
 			if(c & 0200) drawcircle(renderer, x, yoff + 9*space, r);
 		}
 	}
-	yoff += HEIGHT + GAP;
+	yoff += height + gap;
 
 	// punch
 	if(ptpfd >= 0) {
@@ -106,7 +117,7 @@ draw(SDL_Renderer *renderer)
 				break;
 		rect.x = punchpos - i*space;
 		if(rect.x < 0) rect.x = 0;
-		rect.w = WIDTH;
+		rect.w = width;
 		rect.y = yoff;
 		SDL_RenderFillRect(renderer, &rect);
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -121,7 +132,7 @@ draw(SDL_Renderer *renderer)
 			if(c & 1) drawcircle(renderer, x, yoff + 1*space, r);
 			if(c & 2) drawcircle(renderer, x, yoff + 2*space, r);
 			if(c & 4) drawcircle(renderer, x, yoff + 3*space, r);
-			drawcircle(renderer, x, yoff + 4*space, 3);
+			drawcircle(renderer, x, yoff + 4*space, fr);
 			if(c & 010) drawcircle(renderer, x, yoff + 5*space, r);
 			if(c & 020) drawcircle(renderer, x, yoff + 6*space, r);
 			if(c & 040) drawcircle(renderer, x, yoff + 7*space, r);
@@ -392,7 +403,7 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	SDL_Window *window = SDL_CreateWindow("Paper tape",
+	window = SDL_CreateWindow("Paper tape",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		WIDTH, 2*HEIGHT + GAP,
 		SDL_WINDOW_SHOWN);
@@ -407,7 +418,7 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	ptpbuflen = 200;
+	ptpbuflen = 2000;
 	ptpbuf = malloc(ptpbuflen*sizeof(int));
 	if(argc > 0)
 		mountptr(argv[0]);
@@ -420,9 +431,11 @@ main(int argc, char *argv[])
 	SDL_Event e;
 
 	while(!quit) {
-		while (SDL_PollEvent(&e) != 0) {
-			if (e.type == SDL_QUIT) {
+		while(SDL_PollEvent(&e) != 0) {
+			switch(e.type) {
+			case SDL_QUIT:
 				quit = 1;
+				break;
 			}
 		}
 
