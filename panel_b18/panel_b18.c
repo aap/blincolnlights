@@ -175,7 +175,7 @@ panelthread(void *arg)
 }
 
 void
-interrupt(int sig)
+sighandler(int sig)
 {
 	doexit = 1;
 }
@@ -184,7 +184,8 @@ void
 initGPIO(void)
 {
 	opengpio();
-	signal(SIGINT, interrupt);
+	signal(SIGINT, sighandler);
+	signal(SIGTERM, sighandler);
 
 	for(int i = 0; i < nelem(COLUMNS); i++)
 		colmsk |= 1<<COLUMNS[i];

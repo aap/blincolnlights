@@ -244,7 +244,7 @@ panelthread(void *arg)
 }
 
 void
-interrupt(int sig)
+sighandler(int sig)
 {
 	doexit = 1;
 }
@@ -265,7 +265,8 @@ initGPIO(void)
 	inRow();
 	setAddr(8);
 
-	signal(SIGINT, interrupt);
+	signal(SIGINT, sighandler);
+	signal(SIGTERM, sighandler);
 	return 0;
 }
 

@@ -1172,7 +1172,7 @@ exitcleanup(void)
 }
 
 void
-inthandler(int sig)
+sighandler(int sig)
 {
 	exit(0);
 }
@@ -1206,7 +1206,8 @@ main(int argc, char *argv[])
 
 	atexit(exitcleanup);
 	signal(SIGPIPE, SIG_IGN);
-	signal(SIGINT, inthandler);
+	signal(SIGINT, sighandler);
+	signal(SIGTERM, sighandler);
 
 	memset(ww, 0, sizeof(*ww));
 	ww->misc = nullUnit;

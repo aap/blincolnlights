@@ -349,8 +349,12 @@ tapethread(void *arg)
 		// handle cli
 		else if(pfds[0].revents & POLLIN) {
 			n = read(pfds[0].fd, line, sizeof(line));
-			if(n <= 0)
+			if(n <= 0) {
+				close(pfds[0].fd);
+				pfds[0].fd = -1;
+				pfds[0].events = 0;
 				continue;
+			}
 			if(n < sizeof(line))
 				line[n] = '\0';
 			cli(line, n);
