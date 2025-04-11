@@ -1619,6 +1619,18 @@ handlecmd(PDP1 *pdp, char *line)
 				pdp->muldiv_sw = !pdp->muldiv_sw;
 			sprintf(resp, "mul-div now %s", pdp->muldiv_sw ? "on" : "off");
 		}
+		else if(strcmp(args[0], "audio") == 0) {
+			if(args[1]) {
+				if(strcmp(args[1], "on") == 0 ||
+				   strcmp(args[1], "1") == 0)
+					doaudio = 1;
+				else if(strcmp(args[1], "off") == 0 ||
+				   strcmp(args[1], "0") == 0)
+					doaudio = 0;
+			} else
+				doaudio = !doaudio;
+			sprintf(resp, "audio now %s", doaudio ? "on" : "off");
+		}
 	}
 
 	free(args[0]);

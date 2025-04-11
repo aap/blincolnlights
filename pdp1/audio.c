@@ -11,7 +11,7 @@ static u64 nexttime;
 //#define SAMPLE_TIME (1000000000/44100)
 
 void
-initmusic(void)
+initaudio(void)
 {
 	SDL_AudioSpec spec;
 
@@ -28,7 +28,7 @@ initmusic(void)
 }
 
 void
-stopmusic(void)
+stopaudio(void)
 {
 	if(dev == 0)
 		return;
@@ -40,7 +40,7 @@ stopmusic(void)
 }
 
 void
-svc_music(PDP1 *pdp)
+svc_audio(PDP1 *pdp)
 {
 	u8 s;
 

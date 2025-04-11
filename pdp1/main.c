@@ -19,10 +19,7 @@ Panel *getpanel(void);
 
 #define Edge(sw) (pdp->sw && !prev_##sw)
 
-void initmusic(void);
-void stopmusic(void);
-void svc_music(PDP1 *pdp);
-int domusic = 0;
+int doaudio;
 
 void
 emu(PDP1 *pdp, Panel *panel)
@@ -30,7 +27,7 @@ emu(PDP1 *pdp, Panel *panel)
 	pdp->panel = panel;
 
 	pwrclr(pdp);
-if(domusic) initmusic();
+	initaudio();
 
 	bool prev_start_sw;
 	bool prev_stop_sw;
@@ -73,24 +70,29 @@ if(domusic) initmusic();
 				}
 			}
 
-			if(pdp->run)	// not really correct
-svc_music(pdp),
+			if(pdp->run) {	// not really correct
+				if(doaudio)
+					svc_audio(pdp);
+				else
+					stopaudio();
 				cycle(pdp);
-			else
-stopmusic(),
+			 } else {
+				stopaudio();
 				updatelights(pdp, panel);
+			}
 			throttle(pdp);
 			handleio(pdp);
 			pdp->simtime += 5000;
 		} else {
-stopmusic();
+			stopaudio();
 			pwrclr(pdp);
 
-if(pdp->start_sw && pdp->readin_sw) {
-	lightson(panel);
-	sleep(1);
-	exit(100);
-}
+			/* magic key combo used for shutdown */
+			if(pdp->start_sw && pdp->readin_sw) {
+				lightson(panel);
+				sleep(1);
+				exit(100);
+			}
 			lightsoff(panel);
 
 			pdp->simtime = gettime();

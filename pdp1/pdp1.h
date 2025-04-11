@@ -189,3 +189,8 @@ void cli(PDP1 *pdp);
 char *handlecmd(PDP1 *pdp, char *line);
 
 void typtelnet(int port, int fd);
+
+void initaudio(void);
+void stopaudio(void);
+void svc_audio(PDP1 *pdp);
+extern int doaudio;

@@ -70,7 +70,9 @@ updatelights(PDP1 *pdp, Panel *panel)
 
 	l9 = 0;
 	if(pdp->tbs) l9 |= 0400000;
-	if(pdp->tbb) l9 |= 0200000;
+	// schematics says TBB set means red
+	// but manual says lamp on means black, weird
+	if(!pdp->tbb) l9 |= 0200000;
 	if(pdp->tyo) l9 |= 0100000;
 	if(pdp->tcp) l9 |= 0040000;
 	l9 |= pdp->tb << 8;
