@@ -1605,7 +1605,8 @@ handlecmd(PDP1 *pdp, char *line)
 			p += sprintf(p, "p filename            mount tape in punch\n");
 			p += sprintf(p, "l filename            load memory from RIM-file\n");
 			p += sprintf(p, "d [host] [port]       connect to display program\n");
-			p += sprintf(p, "muldiv                toggle type 10 mul-div option");
+			p += sprintf(p, "muldiv [on/off]       set/toggle type 10 mul-div option");
+			p += sprintf(p, "audio [on/off]        set/toggle audio output");
 		}
 		else if(strcmp(args[0], "muldiv") == 0) {
 			if(args[1]) {
