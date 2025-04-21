@@ -39,7 +39,10 @@ emu(PDP1 *pdp, Panel *panel)
 
 	inittime();
 	pdp->simtime = gettime();
-	pdp->dpy_last = pdp->simtime;
+	pdp->dpy[0].last = pdp->simtime;
+	pdp->dpy[1].last = pdp->simtime;
+	pdp->dpy[0].ncmds = 0;
+	pdp->dpy[1].ncmds = 0;
 	for(;;) {
 		prev_start_sw = pdp->start_sw;
 		prev_stop_sw = pdp->stop_sw;
@@ -97,7 +100,8 @@ emu(PDP1 *pdp, Panel *panel)
 
 			pdp->simtime = gettime();
 		}
-		agedisplay(pdp);
+		agedisplay(pdp, 0);
+		agedisplay(pdp, 1);
 		cli(pdp);
 	}
 }
@@ -127,11 +131,23 @@ void
 handledpy(int fd, void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	if(pdp->dpy_fd >= 0) {
+	if(pdp->dpy[0].fd >= 0) {
 		close(fd);
 	} else {
-		pdp->dpy_fd = fd;
-		nodelay(pdp->dpy_fd);
+		pdp->dpy[0].fd = fd;
+		nodelay(pdp->dpy[0].fd);
+	}
+}
+
+void
+handledpy2(int fd, void *arg)
+{
+	PDP1 *pdp = (PDP1*)arg;
+	if(pdp->dpy[1].fd >= 0) {
+		close(fd);
+	} else {
+		pdp->dpy[1].fd = fd;
+		nodelay(pdp->dpy[1].fd);
 	}
 }
 
@@ -162,6 +178,7 @@ netthread(void *arg)
 		{ 1042, handleptr },
 		{ 1043, handleptp },
 		{ 3400, handledpy },
+		{ 3401, handledpy2 },
 	};
 	serveN(ports, nelem(ports), arg);
 }
@@ -285,11 +302,12 @@ main(int argc, char *argv[])
 
 	startpolling();
 
-	pdp->dpy_fd = -1;
-//	pdp->dpy_fd = dial(host, port);
-//	if(pdp->dpy_fd < 0)
+	pdp->dpy[0].fd = -1;
+	pdp->dpy[1].fd = -1;
+//	pdp->dpy[0].fd = dial(host, port);
+//	if(pdp->dpy[0].fd < 0)
 //		printf("can't open display\n");
-//	nodelay(pdp->dpy_fd);
+//	nodelay(pdp->dpy[0].fd);
 
 	pthread_create(&th, NULL, netthread, pdp);
 

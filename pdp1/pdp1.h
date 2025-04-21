@@ -9,9 +9,18 @@ typedef u16 Addr;
 #define MAXMEM (64*1024)
 
 typedef struct PDP1 PDP1;
+typedef struct DispCon DispCon;
 typedef struct Panel Panel;
 
 void updatelights(PDP1 *pdp, Panel *panel);
+
+struct DispCon
+{
+	int fd;
+	u64 last;
+	u32 cmdbuf[128];
+	u32 ncmds;
+};
 
 struct PDP1
 {
@@ -53,6 +62,9 @@ struct PDP1
 	int ios;
 	int ioh;
 
+	// extensions
+	int lai, lia;
+
 	int ss;
 	int pf;
 
@@ -87,11 +99,15 @@ struct PDP1
 	// display
 	int dcp;
 	int dbx, dby;
+	int dint;	// no direct schematics for this
 	// simulation
-	int dpy_fd;
+//	int dpy_fd;
+//	int dpy2_fd;
 	u64 dpy_defl_time;
 	u64 dpy_time;
-	u64 dpy_last;
+//	u64 dpy_last;
+//	u64 dpy2_last;
+	DispCon dpy[2];
 
 	// reader
 	int rcp;
@@ -174,6 +190,7 @@ struct PDP1
 // 36
 #define IR_OPR (IR == 037)
 #define IR_INCORR (IR==0 || IR==5 || IR==6 || IR==017 || IR==036)
+//#define IR_INCORR (IR==5 || IR==6 || IR==017 || IR==036)
 
 
 void pwrclr(PDP1 *pdp);
@@ -183,7 +200,7 @@ void start_readin(PDP1 *pdp);
 void readin1(PDP1 *pdp);
 void readin2(PDP1 *pdp);
 void handleio(PDP1 *pdp);
-void agedisplay(PDP1 *pdp);
+void agedisplay(PDP1 *pdp, int i);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
 char *handlecmd(PDP1 *pdp, char *line);

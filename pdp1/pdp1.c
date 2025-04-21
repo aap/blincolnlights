@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+// PDP-1D but probably also on some C's?
+#define LAILIA
+
 #define B0 0400000
 #define B1 0200000
 #define B2 0100000
@@ -302,6 +305,11 @@ sc(PDP1 *pdp)
 	pdp->sbm = pdp->sbm_start_sw;
 	clr_sbs(pdp);
 	pdp->b2 = 0;
+
+#ifdef LAILIA
+	pdp->lai = 0;
+	pdp->lia = 0;
+#endif
 
 	pdp->emc = 0;
 	pdp->exd = 0;
@@ -608,12 +616,27 @@ cycle0(PDP1 *pdp)
 	default:
 	// TP0
 	if(IR_SHRO && (MB & B12)) shro(pdp);
+#ifdef LAILIA
+	if(pdp->lai) MB |= IO;
+#endif
 	pc_to_ma(pdp);
 	TP(0)
 
 	case 1:
 	// TP1
 	if(IR_SHRO && (MB & B11)) shro(pdp);
+#ifdef LAILIA
+	if(pdp->lai && pdp->lia) {
+		int t = MB; MB = AC; AC = t;
+		IO = 0;
+	} else {
+		if(pdp->lia) {
+			MB = AC;
+			IO = 0;
+		}
+		if(pdp->lai) AC = MB;
+	}
+#endif
 	pdp->emc = 0;
 	TP(1)
 
@@ -623,6 +646,9 @@ cycle0(PDP1 *pdp)
 	pc_inc(pdp);
 	if(IR_IOT) pdp->ioc = !pdp->ioh && !pdp->ihs;
 	pdp->ihs = 0;
+#ifdef LAILIA
+	if(pdp->lia) IO |= MB;
+#endif
 	TP(2)
 
 	// TP3
@@ -640,6 +666,8 @@ cycle0(PDP1 *pdp)
 
 	// TP5
 	IR |= MB>>13;
+	pdp->lai = 0;
+	pdp->lia = 0;
 	TP(5)
 
 	// TP6
@@ -690,6 +718,10 @@ cycle0(PDP1 *pdp)
 	if(IR_OPR) {
 		if(MB & B7) AC |= pdp->tw;
 		if(MB & B11) pc_to_ac(pdp);
+#ifdef LAILIA
+		if(MB & B12) pdp->lai = 1;
+		if(MB & B13) pdp->lia = 1;
+#endif
 		if(MB & B14) pdp->pf |= decflg(MB);
 		else pdp->pf &= ~decflg(MB);
 	}
@@ -737,6 +769,9 @@ assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
 		if(pdp->ioc) iot(pdp, 1);
 	}
 	if(MB & B0) pdp->smb = 1;
+#ifdef LAILIA
+	if(pdp->lai) MB = 0;
+#endif
 	TP(10)
 	}
 }
@@ -1113,6 +1148,8 @@ throttle(PDP1 *pdp)
 		pdp->realtime = gettime();
 }
 
+// pulse=0: TP7
+// pulse=1: TP10
 static void
 iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 {
@@ -1182,10 +1219,12 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		if(!pulse) {
 			pdp->dbx = 0;
 			pdp->dby = 0;
+			pdp->dint = 0;
 		} else {
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
+			pdp->dint |= (MB>>6)&7;
 			pdp->dpy_defl_time = pdp->simtime + US(35);
 			pdp->dpy_time = pdp->dpy_defl_time + US(15);
 		}
@@ -1300,21 +1339,64 @@ req(PDP1 *pdp, int chan)
 		pdp->b2 = 1;
 }
 
-u32 cmdbuf[128];
-u32 ncmds = 0;
-
 void
-dpycmd(PDP1 *pdp, u32 cmd)
+dpycmd(PDP1 *pdp, int i, u32 cmd)
 {
-	cmdbuf[ncmds++] = cmd;
-	if(ncmds == nelem(cmdbuf)) {
-		int n = write(pdp->dpy_fd, cmdbuf, sizeof(cmdbuf));
-		ncmds = 0;
-		if(n < (int)sizeof(cmdbuf)) {
-			close(pdp->dpy_fd);
-			pdp->dpy_fd = -1;
+	DispCon *d = &pdp->dpy[i];
+	d->cmdbuf[d->ncmds++] = cmd;
+	if(d->ncmds == nelem(d->cmdbuf)) {
+		int n = write(d->fd, d->cmdbuf, sizeof(d->cmdbuf));
+		d->ncmds = 0;
+		if(n < (int)sizeof(d->cmdbuf)) {
+			close(d->fd);
+			d->fd = -1;
 		}
 	}
+}
+
+void
+agedisplay(PDP1 *pdp, int i)
+{
+	DispCon *d = &pdp->dpy[i];
+	if(d->fd < 0) {
+		d->last = pdp->simtime;
+		return;
+	}
+	int cmd = 511<<23;
+	assert(d->last <= pdp->simtime);
+	u64 dt = (pdp->simtime - d->last)/1000;
+	while(dt >= 511) {
+		d->last += 511*1000;
+		dpycmd(pdp, i, cmd);
+		dt = (pdp->simtime - d->last)/1000;
+	}
+}
+
+void
+display(PDP1 *pdp, int i)
+{
+	agedisplay(pdp, i);
+	int x = pdp->dbx;
+	int y = pdp->dby;
+	int dt = (pdp->simtime - pdp->dpy[i].last)/1000;
+	if(x & 01000) x++;
+	if(y & 01000) y++;
+	x = (x+01000)&01777;
+	y = (y+01000)&01777;
+	int cmd = x | (y<<10) | (dt<<23);
+	int in = (pdp->dint+4)&7;
+	int twoscreens = pdp->dpy[0].fd >= 0 && pdp->dpy[1].fd >= 0;
+	if(twoscreens) {
+		// probably wrong
+		cmd |= (in&3)<<20;
+		if(!!(pdp->dint&4) != i)
+			return;
+	} else {
+		cmd |= in<<20;
+	}
+
+	pdp->dpy[i].last = pdp->simtime;
+	dpycmd(pdp, i, cmd);
 }
 
 void
@@ -1420,40 +1502,12 @@ handleio(PDP1 *pdp)
 	/* Display */
 	if(pdp->dpy_defl_time < pdp->simtime) {
 		pdp->dpy_defl_time = NEVER;
-		if(pdp->dpy_fd >= 0) {
-			agedisplay(pdp);
-			int x = pdp->dbx;
-			int y = pdp->dby;
-			int dt = (pdp->simtime - pdp->dpy_last)/1000;
-			if(x & 01000) x++;
-			if(y & 01000) y++;
-			x = (x+01000)&01777;
-			y = (y+01000)&01777;
-			int cmd = x | (y<<10) | (5<<20) | (dt<<23);
-			pdp->dpy_last = pdp->simtime;
-			dpycmd(pdp, cmd);
-		}
+		display(pdp, 0);
+		display(pdp, 1);
 	}
 	if(pdp->dpy_time < pdp->simtime) {
 		pdp->dpy_time = NEVER;
 		if(pdp->dcp) pdp->ios = 1;
-	}
-}
-
-void
-agedisplay(PDP1 *pdp)
-{
-	if(pdp->dpy_fd < 0) {
-		pdp->dpy_last = pdp->simtime;
-		return;
-	}
-	int cmd = 511<<23;
-	assert(pdp->dpy_last <= pdp->simtime);
-	u64 dt = (pdp->simtime - pdp->dpy_last)/1000;
-	while(dt >= 511) {
-		pdp->dpy_last += 511*1000;
-		dpycmd(pdp, cmd);
-		dt = (pdp->simtime - pdp->dpy_last)/1000;
 	}
 }
 
@@ -1586,14 +1640,14 @@ handlecmd(PDP1 *pdp, char *line)
 			if(args[2])
 				port = atoi(args[2]);
 
-			if(pdp->dpy_fd >= 0)
-				close(pdp->dpy_fd);
-			pdp->dpy_last = pdp->simtime;
-			pdp->dpy_fd = dial(host, port);
-			if(pdp->dpy_fd < 0)
+			if(pdp->dpy[0].fd >= 0)
+				close(pdp->dpy[0].fd);
+			pdp->dpy[0].last = pdp->simtime;
+			pdp->dpy[0].fd = dial(host, port);
+			if(pdp->dpy[0].fd < 0)
 				strcpy(resp, "can't open display");
 			else
-				nodelay(pdp->dpy_fd);
+				nodelay(pdp->dpy[0].fd);
 		}
 		// help
 		else if(strcmp(args[0], "?") == 0 ||
