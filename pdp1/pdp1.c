@@ -1144,8 +1144,10 @@ cycle(PDP1 *pdp)
 void
 throttle(PDP1 *pdp)
 {
-	while(pdp->realtime < pdp->simtime)
+	while(pdp->realtime < pdp->simtime) {
+		usleep(1000);
 		pdp->realtime = gettime();
+	}
 }
 
 // pulse=0: TP7
