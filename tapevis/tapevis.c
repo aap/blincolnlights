@@ -163,7 +163,7 @@ mountptr(const char *file)
 
 	ptrpos = 0;
 	// find beginning
-	while(ptrbuf[ptrpos] == 0)
+	while(ptrpos < ptrbuflen && ptrbuf[ptrpos] == 0)
 		ptrpos++;
 	if(ptrpos > 20) ptrpos -= 10;
 }

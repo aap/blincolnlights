@@ -135,6 +135,7 @@ handledpy(int fd, void *arg)
 		close(fd);
 	} else {
 		pdp->dpy[0].fd = fd;
+		pdp->dpy[0].last = pdp->simtime;
 		nodelay(pdp->dpy[0].fd);
 	}
 }
@@ -147,6 +148,7 @@ handledpy2(int fd, void *arg)
 		close(fd);
 	} else {
 		pdp->dpy[1].fd = fd;
+		pdp->dpy[1].last = pdp->simtime;
 		nodelay(pdp->dpy[1].fd);
 	}
 }

@@ -1236,19 +1236,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		// simple but stupid version for now
 		if(pulse) {
 			// LRTF
-			int p1 = 0;
-			int p2 = 0;
-			if(pdp->spcwar1&020) p1 |= 010;
-			if(pdp->spcwar1&010) p1 |= 004;
-			if(pdp->spcwar1&004) p1 |= 002;
-			if(pdp->spcwar1&002) p1 |= 001;
-			if(pdp->spcwar1&001) p1 |= 014;
-			if(pdp->spcwar2&020) p2 |= 010;
-			if(pdp->spcwar2&010) p2 |= 004;
-			if(pdp->spcwar2&004) p2 |= 002;
-			if(pdp->spcwar2&002) p2 |= 001;
-			if(pdp->spcwar2&001) p2 |= 014;
-			IO |= p1<<14 | p2;
+			IO |= pdp->spcwar1<<14 | pdp->spcwar2;
 		}
 		break;
 
@@ -1360,10 +1348,8 @@ void
 agedisplay(PDP1 *pdp, int i)
 {
 	DispCon *d = &pdp->dpy[i];
-	if(d->fd < 0) {
-		d->last = pdp->simtime;
+	if(d->fd < 0)
 		return;
-	}
 	int cmd = 511<<23;
 	assert(d->last <= pdp->simtime);
 	u64 dt = (pdp->simtime - d->last)/1000;
@@ -1378,6 +1364,8 @@ void
 display(PDP1 *pdp, int i)
 {
 	agedisplay(pdp, i);
+	if(pdp->dpy[i].fd < 0)
+		return;
 	int x = pdp->dbx;
 	int y = pdp->dby;
 	int dt = (pdp->simtime - pdp->dpy[i].last)/1000;

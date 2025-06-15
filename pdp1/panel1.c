@@ -30,8 +30,8 @@ updateswitches(PDP1 *pdp, Panel *panel)
 
 	pdp->tape_feed = !!(sw2 & KEY_FEED);
 
-	pdp->spcwar1 = sw3 & 037;
-	pdp->spcwar2 = (sw3>>13) & 037;
+	pdp->spcwar1 = (sw3>>5) & 017;
+	pdp->spcwar2 = (sw3>>9) & 017;
 }
 
 void
