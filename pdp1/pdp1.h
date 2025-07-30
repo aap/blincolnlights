@@ -20,6 +20,7 @@ struct DispCon
 	u64 last;
 	u32 cmdbuf[128];
 	u32 ncmds;
+	u32 agetime;
 };
 
 struct PDP1

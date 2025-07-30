@@ -138,11 +138,11 @@ static void
 agescope(Whirlwind *ww)
 {
 	Scope *s = &ww->scope;
-	int cmd = 511<<23;
+	int cmd = 510<<23;
 	assert(s->last <= ww->simtime);
 	u64 dt = (ww->simtime - s->last)/1000;
-	while(dt >= 511) {
-		s->last += 511*1000;
+	while(dt >= 510) {
+		s->last += 510*1000;
 		write(s->fd, &cmd, sizeof(cmd));
 		dt = (ww->simtime - s->last)/1000;
 	}

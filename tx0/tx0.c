@@ -461,11 +461,11 @@ handleio(TX0 *tx0)
 void
 agedisplay(TX0 *tx0)
 {
-	int cmd = 511<<23;
+	int cmd = 510<<23;
 	assert(tx0->dpy_last <= tx0->simtime);
 	u64 dt = (tx0->simtime - tx0->dpy_last)/1000;
-	while(dt >= 511) {
-		tx0->dpy_last += 511*1000;
+	while(dt >= 510) {
+		tx0->dpy_last += 510*1000;
 		write(tx0->dpy_fd, &cmd, sizeof(cmd));
 		dt = (tx0->simtime - tx0->dpy_last)/1000;
 	}

@@ -128,29 +128,30 @@ handlenetcmd(int fd, void *arg)
 }
 
 void
+connectdpy(PDP1 *pdp, DispCon *d, int fd)
+{
+	if(d->fd >= 0) {
+		close(fd);
+	} else {
+		d->fd = fd;
+		d->last = pdp->simtime;
+		d->agetime = 50*1000;
+		nodelay(d->fd);
+	}
+}
+
+void
 handledpy(int fd, void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	if(pdp->dpy[0].fd >= 0) {
-		close(fd);
-	} else {
-		pdp->dpy[0].fd = fd;
-		pdp->dpy[0].last = pdp->simtime;
-		nodelay(pdp->dpy[0].fd);
-	}
+	connectdpy(pdp, &pdp->dpy[0], fd);
 }
 
 void
 handledpy2(int fd, void *arg)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	if(pdp->dpy[1].fd >= 0) {
-		close(fd);
-	} else {
-		pdp->dpy[1].fd = fd;
-		pdp->dpy[1].last = pdp->simtime;
-		nodelay(pdp->dpy[1].fd);
-	}
+	connectdpy(pdp, &pdp->dpy[1], fd);
 }
 
 void

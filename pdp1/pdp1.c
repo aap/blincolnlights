@@ -1330,18 +1330,24 @@ req(PDP1 *pdp, int chan)
 }
 
 void
+flushdpy(DispCon *d)
+{
+	int sz = d->ncmds*sizeof(d->cmdbuf[0]);
+	int n = write(d->fd, d->cmdbuf, sz);
+	d->ncmds = 0;
+	if(n < sz) {
+		close(d->fd);
+		d->fd = -1;
+	}
+}
+
+void
 dpycmd(PDP1 *pdp, int i, u32 cmd)
 {
 	DispCon *d = &pdp->dpy[i];
 	d->cmdbuf[d->ncmds++] = cmd;
-	if(d->ncmds == nelem(d->cmdbuf)) {
-		int n = write(d->fd, d->cmdbuf, sizeof(d->cmdbuf));
-		d->ncmds = 0;
-		if(n < (int)sizeof(d->cmdbuf)) {
-			close(d->fd);
-			d->fd = -1;
-		}
-	}
+	if(d->ncmds == nelem(d->cmdbuf))
+		flushdpy(d);
 }
 
 void
@@ -1350,20 +1356,33 @@ agedisplay(PDP1 *pdp, int i)
 	DispCon *d = &pdp->dpy[i];
 	if(d->fd < 0)
 		return;
-	int cmd = 511<<23;
+	int ival = d->agetime;
+	int cmd = ival<<23;
 	assert(d->last <= pdp->simtime);
 	u64 dt = (pdp->simtime - d->last)/1000;
-	while(dt >= 511) {
-		d->last += 511*1000;
-		dpycmd(pdp, i, cmd);
-		dt = (pdp->simtime - d->last)/1000;
+	if(dt >= ival) {
+		dpycmd(pdp, i, 511<<23);
+		// TODO? theoretically dt could be huge,
+		// but if it is you have other problems
+		dpycmd(pdp, i, dt);
+		d->last = pdp->simtime;
+		flushdpy(d);
+
+		// increase interval during fade out
+		// to reduce number of age-commands
+		if(d->agetime < 1000*1000)
+			d->agetime += d->agetime/6;
 	}
 }
 
 void
 display(PDP1 *pdp, int i)
 {
+	// need to make sure dt field doesn't overflow cmd
+	pdp->dpy[i].agetime = 510;
 	agedisplay(pdp, i);
+	// reset age interval for every point shown
+	pdp->dpy[i].agetime = 50*1000;
 	if(pdp->dpy[i].fd < 0)
 		return;
 	int x = pdp->dbx;

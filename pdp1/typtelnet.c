@@ -237,7 +237,7 @@ telthread(void *arg)
 		cmd(telfd, WILL, SUPRGA);
 		cmd(telfd, WONT, LINEEDIT);
 		cmd(telfd, DONT, LINEEDIT);
-		write(telfd, "[2J[H", 7);
+//		write(telfd, "[2J[H", 7);
 		readwrite(telfd, typfd);
 		close(telfd);
 	}
