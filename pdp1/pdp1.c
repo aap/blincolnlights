@@ -1149,6 +1149,7 @@ throttle(PDP1 *pdp)
 		pdp->realtime = gettime();
 	}
 }
+}
 
 // pulse=0: TP7
 // pulse=1: TP10
@@ -1232,7 +1233,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		}
 		break;
 
-	case 011:       // spacewar controllers
+	case 011:	// spacewar controllers
 		// simple but stupid version for now
 		if(pulse) {
 			// LRTF
@@ -1494,6 +1495,7 @@ handleio(PDP1 *pdp)
 			return;
 		}
 		waitfd(&pdp->typ_fd);
+if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 		pdp->tb = 0;
 		// STROBE TYPE
 		pdp->tb |= c & 077;

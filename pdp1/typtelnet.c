@@ -115,13 +115,11 @@ putfio(int c, int fd)
 }
 
 static void
-putascii(int c, int fd, int localfd)
+getfio(int c, int fd, int localfd)
 {
 	char s[2];
 	int n;
-	c = ascii2fio[c];
-	if(c < 0)
-		return;
+
 	n = 0;
 	if(c & 0300){
 		if(c & 0100 && ucase)
@@ -136,6 +134,27 @@ putascii(int c, int fd, int localfd)
 	int i;
 	for(i = 0; i < n; i++)
 		putfio(color<<6 | s[i], localfd);
+}
+
+
+static void
+getascii(int c, int fd, int localfd)
+{
+	// simulate common combinations
+	// doesn't actually work so well
+	if(c == ';') {
+		getfio(0140, fd, localfd);
+		getfio(033, fd, localfd);
+	} else if(c == ':') {
+		getfio(0140, fd, localfd);
+		getfio(073, fd, localfd);
+	} else {
+		c = ascii2fio[c];
+		if(c < 0)
+			return;
+
+		getfio(c, fd, localfd);
+	}
 }
 
 static int
@@ -205,7 +224,7 @@ readwrite(int telfd, int typfd)
 				if(c < 0)
 					continue;
 				c &= 0177;	// needed?
-				putascii(c, typfd, telfd);
+				getascii(c, typfd, telfd);
 			}
 		}
 	}
