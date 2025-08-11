@@ -1149,7 +1149,6 @@ throttle(PDP1 *pdp)
 		pdp->realtime = gettime();
 	}
 }
-}
 
 // pulse=0: TP7
 // pulse=1: TP10
