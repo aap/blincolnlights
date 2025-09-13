@@ -99,11 +99,6 @@ putfio(int c, int fd)
 	col = !!(c&0100);
 	c = ucase*0100 + (c&077);
 
-	s = fio2uni[c];
-	if(s == XXX) return;
-	if(s == Lcs) { ucase = 0; return; }
-	if(s == Ucs) { ucase = 1; return; }
-
 	if(color != col) {
 		color = col;
 		if(color == 0)
@@ -111,7 +106,11 @@ putfio(int c, int fd)
 		else
 			write(fd, "\e[31m", 5);
 	}
-	write(fd, s, strlen(s));
+	s = fio2uni[c];
+// TODO: synchronize ucase?
+	if(s == Lcs) { ucase = 0; return; }
+	if(s == Ucs) { ucase = 1; return; }
+	if(s != XXX) write(fd, s, strlen(s));
 }
 
 static void
@@ -141,7 +140,7 @@ static void
 getascii(int c, int fd, int localfd)
 {
 	// simulate common combinations
-	// doesn't actually work so well
+	// didn't actually use to work so well, but maybe fixed now?
 	if(c == ';') {
 		getfio(0140, fd, localfd);
 		getfio(033, fd, localfd);
@@ -257,6 +256,10 @@ telthread(void *arg)
 		cmd(telfd, WONT, LINEEDIT);
 		cmd(telfd, DONT, LINEEDIT);
 //		write(telfd, "[2J[H", 7);
+		if(color) {
+			color = 0;
+			putfio(0160, telfd);
+		}
 		readwrite(telfd, typfd);
 		close(telfd);
 	}

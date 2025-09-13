@@ -1474,9 +1474,14 @@ handleio(PDP1 *pdp)
 	if(pdp->typ_time < pdp->simtime) {
 		// wrong timing
 		pdp->typ_time = NEVER;
-		if((pdp->tb&076) == 034)
+		if((pdp->tb&076) == 034) {
 			pdp->tbb = pdp->tb & 1;
-		else if(pdp->typ_fd.fd >= 0) {
+			// hack to synchronize input
+			if(pdp->typ_fd.fd >= 0) {
+				char c = (pdp->tbb<<6) | 060;
+				write(pdp->typ_fd.fd, &c, 1);
+			}
+		} else if(pdp->typ_fd.fd >= 0) {
 			char c = (pdp->tbb<<6) | pdp->tb;
 			write(pdp->typ_fd.fd, &c, 1);
 		}
@@ -1486,6 +1491,9 @@ handleio(PDP1 *pdp)
 		if(pdp->tcp) pdp->ios = 1;
 		req(pdp, TTO_CHAN);
 	}
+	// stall input while we're outputting stuff
+	if(pdp->typ_time != NEVER)
+		pdp->tyi_wait = pdp->simtime + US(25000);
 	if(pdp->tyi_wait < pdp->simtime && pdp->typ_fd.ready) {
 		char c;
 		if(read(pdp->typ_fd.fd, &c, 1) <= 0) {
@@ -1506,7 +1514,7 @@ if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 
 		// PDP-1 has to keep up, so avoid clobbering TB
 		// not sure what a good timeout here is
-		pdp->tyi_wait = pdp->simtime + 25000000;
+		pdp->tyi_wait = pdp->simtime + US(25000);
 	}
 
 	/* Display */
