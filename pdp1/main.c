@@ -236,7 +236,8 @@ dumpmem(const char *file, Word *mem, Word size)
 	a = 0;
 	for(i = 0; i < size; i++)
 		if(mem[i] != 0){
-			if(a != i){
+//			if(a != i){
+			if(1){
 				a = i;
 				fprintf(f, "%06o:\n", a);
 			}

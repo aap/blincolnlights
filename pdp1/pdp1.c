@@ -28,6 +28,7 @@
 #define US(us) ((us)*1000 - 1)
 #define RDLY US(2500)		// 400/s
 #define PDLY US(15873)		// 63/s
+#define TYODLY US(100000)	// has to be long enough for MACRO to work
 
 #define RD_CHAN 1
 #define PUN_CHAN 6
@@ -1188,7 +1189,7 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 			if(!pdp->tyo) {
 				pdp->tyo = 1;
 				pdp->tb |= IO & 077;
-				pdp->typ_time = pdp->simtime + US(25000);
+				pdp->typ_time = pdp->simtime + TYODLY;
 			}
 		}
 		break;
@@ -1316,6 +1317,7 @@ iot(PDP1 *pdp, int pulse)
 {
 	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
 	int dev = MB & 077;
+	// 0 -> IO ON IOT also available for other devices
 	if(!pulse && (dev&070)==030) IO = 0;
 	iot_pulse(pdp, pulse, dev, nac);
 }
