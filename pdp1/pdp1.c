@@ -609,6 +609,13 @@ shro(PDP1 *pdp)
 #define DF_MIDBRK_PERMIT (pdp->ir < 030 || (IR_JMP || IR_JSP) && pdp->df2)
 
 static void
+syncov(PDP1 *pdp)
+{
+	if(pdp->ov2) pdp->ov1 = 1;
+	pdp->ov2 = 0;
+}
+
+static void
 cycle0(PDP1 *pdp)
 {
 	int hack = pdp->cychack;
@@ -753,6 +760,7 @@ cycle0(PDP1 *pdp)
 	// TP10
 	sbs_reset_sync(pdp);
 	memclr(pdp);
+	syncov(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(pdp->df1 || pdp->ir < 030) pdp->cyc = 1;
 	if(pdp->sbm && pdp->req) {
@@ -873,6 +881,7 @@ defer(PDP1 *pdp)
 	// TP10
 	sbs_reset_sync(pdp);
 	memclr(pdp);
+	syncov(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(!pdp->df2) {
 		pdp->df1 = 0;
@@ -990,9 +999,9 @@ cycle1(PDP1 *pdp)
 	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(IR_CALJDA) ma_to_pc(pdp);
+	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_SAD || IR_SAS) AC ^= MB;
-	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
 	if(IR_INCORR ||
 	   pdp->single_cyc_sw ||
 	   pdp->single_inst_sw ||
@@ -1009,8 +1018,7 @@ cycle1(PDP1 *pdp)
 	// TP10
 	sbs_reset_sync(pdp);
 	memclr(pdp);
-	if(pdp->ov2) pdp->ov1 = 1;
-	pdp->ov2 = 0;
+	syncov(pdp);
 	pdp->cyc = 0;
 	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
