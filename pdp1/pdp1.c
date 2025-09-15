@@ -1403,16 +1403,18 @@ display(PDP1 *pdp, int i)
 	x = (x+01000)&01777;
 	y = (y+01000)&01777;
 	int cmd = x | (y<<10) | (dt<<23);
-	int in = (pdp->dint+4)&7;
+	int in = pdp->dint;
+	// checking fd's is a bit of a hack of course.
+	// this is really a hardware configuration
 	int twoscreens = pdp->dpy[0].fd >= 0 && pdp->dpy[1].fd >= 0;
 	if(twoscreens) {
-		// probably wrong
-		cmd |= (in&3)<<20;
 		if(!!(pdp->dint&4) != i)
 			return;
-	} else {
-		cmd |= in<<20;
+		// unclear what's happening here exactly
+		// spacewar 4.4 uses only intensity 0/4
+		in &= 3;
 	}
+	cmd |= ((in+4)&7)<<20;
 
 	pdp->dpy[i].last = pdp->simtime;
 	dpycmd(pdp, i, cmd);
