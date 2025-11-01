@@ -184,6 +184,7 @@ netthread(void *arg)
 		{ 3401, handledpy2 },
 	};
 	serveN(ports, nelem(ports), arg);
+	return nil;
 }
 
 char *argv0;

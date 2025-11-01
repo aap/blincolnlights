@@ -393,7 +393,7 @@ readin2(PDP1 *pdp)
 	// SP2
 	pdp->cyc = 1;
 	MB |= IO;
-	// epc = eta
+	pdp->epc |= pdp->eta;
 
 	// SP3
 	IR |= MB>>13;
@@ -1367,7 +1367,6 @@ agedisplay(PDP1 *pdp, int i)
 	if(d->fd < 0)
 		return;
 	int ival = d->agetime;
-	int cmd = ival<<23;
 	assert(d->last <= pdp->simtime);
 	u64 dt = (pdp->simtime - d->last)/1000;
 	if(dt >= ival) {
