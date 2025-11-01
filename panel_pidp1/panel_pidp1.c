@@ -106,7 +106,7 @@ u32
 readRow(int a)
 {
 	setAddr(a);
-	usleep(10);
+	usleep(20);
 	int sw = 0777777;
 	for(int i = 0; i < nelem(COLUMNS); i++)
 		if(getPin(COLUMNS[i]))
