@@ -130,13 +130,15 @@ handlenetcmd(int fd, void *arg)
 void
 connectdpy(PDP1 *pdp, DispCon *d, int fd)
 {
-	if(d->fd >= 0) {
+	if(d->fd.fd >= 0) {
 		close(fd);
 	} else {
-		d->fd = fd;
+		nodelay(fd);
+		d->fd.fd = fd;
+		d->fd.id = -1;
+		waitfd(&d->fd);
 		d->last = pdp->simtime;
 		d->agetime = 50*1000;
-		nodelay(d->fd);
 	}
 }
 
@@ -307,12 +309,11 @@ main(int argc, char *argv[])
 
 	startpolling();
 
-	pdp->dpy[0].fd = -1;
-	pdp->dpy[1].fd = -1;
-//	pdp->dpy[0].fd = dial(host, port);
-//	if(pdp->dpy[0].fd < 0)
-//		printf("can't open display\n");
-//	nodelay(pdp->dpy[0].fd);
+	pdp->dpy[0].fd.id = -1;
+	pdp->dpy[0].fd.fd = -1;
+	pdp->dpy[1].fd.id = -1;
+	pdp->dpy[1].fd.fd = -1;
+	pdp->penr = 5;
 
 	pthread_create(&th, NULL, netthread, pdp);
 

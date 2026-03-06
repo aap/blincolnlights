@@ -1228,15 +1228,19 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 
 	case 007:	// dpy
 		if(!pulse) {
+			// CDP
 			pdp->dbx = 0;
 			pdp->dby = 0;
 			pdp->dint = 0;
+			pdp->lps = 0;
 		} else {
+			// LDP
 			pdp->dcp = nac;
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
 			pdp->dint |= (MB>>6)&7;
 			pdp->dpy_defl_time = pdp->simtime + US(35);
+			// TODO: where did that 15 come from? schematics say 10
 			pdp->dpy_time = pdp->dpy_defl_time + US(15);
 		}
 		break;
@@ -1258,12 +1262,12 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 
 	case 033:	// cks
 		if(pulse) {
-			// TODO: LP
+			IO |= pdp->lps<<17;
 			IO |= pdp->rbs<<16;
 			IO |= !pdp->tyo<<15;
 			IO |= pdp->tbs<<14;
 			IO |= !pdp->punon<<13;
-			// ..
+			// TODO: drum
 			IO |= pdp->sbm<<11;
 		}
 		break;
@@ -1323,6 +1327,11 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 static void
 iot(PDP1 *pdp, int pulse)
 {
+	//   i
+	// xx0 0aa
+	// xx0 1aa	nac
+	// xx1 0aa	nac
+	// xx1 1aa
 	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
 	int dev = MB & 077;
 	// 0 -> IO ON IOT also available for other devices
@@ -1343,12 +1352,10 @@ void
 flushdpy(DispCon *d)
 {
 	int sz = d->ncmds*sizeof(d->cmdbuf[0]);
-	int n = write(d->fd, d->cmdbuf, sz);
+	int n = write(d->fd.fd, d->cmdbuf, sz);
 	d->ncmds = 0;
-	if(n < sz) {
-		close(d->fd);
-		d->fd = -1;
-	}
+	if(n < sz)
+		closefd(&d->fd);
 }
 
 void
@@ -1364,7 +1371,7 @@ void
 agedisplay(PDP1 *pdp, int i)
 {
 	DispCon *d = &pdp->dpy[i];
-	if(d->fd < 0)
+	if(d->fd.fd < 0)
 		return;
 	int ival = d->agetime;
 	assert(d->last <= pdp->simtime);
@@ -1384,6 +1391,11 @@ agedisplay(PDP1 *pdp, int i)
 	}
 }
 
+int mapcoord(int x) {
+	if(x & 01000) x++;
+	return (x+01000)&01777;
+}
+
 void
 display(PDP1 *pdp, int i)
 {
@@ -1392,20 +1404,16 @@ display(PDP1 *pdp, int i)
 	agedisplay(pdp, i);
 	// reset age interval for every point shown
 	pdp->dpy[i].agetime = 50*1000;
-	if(pdp->dpy[i].fd < 0)
+	if(pdp->dpy[i].fd.fd < 0)
 		return;
-	int x = pdp->dbx;
-	int y = pdp->dby;
+	int x = mapcoord(pdp->dbx);
+	int y = mapcoord(pdp->dby);
 	int dt = (pdp->simtime - pdp->dpy[i].last)/1000;
-	if(x & 01000) x++;
-	if(y & 01000) y++;
-	x = (x+01000)&01777;
-	y = (y+01000)&01777;
 	int cmd = x | (y<<10) | (dt<<23);
 	int in = pdp->dint;
 	// checking fd's is a bit of a hack of course.
 	// this is really a hardware configuration
-	int twoscreens = pdp->dpy[0].fd >= 0 && pdp->dpy[1].fd >= 0;
+	int twoscreens = pdp->dpy[0].fd.fd >= 0 && pdp->dpy[1].fd.fd >= 0;
 	if(twoscreens) {
 		if(!!(pdp->dint&4) != i)
 			return;
@@ -1417,6 +1425,25 @@ display(PDP1 *pdp, int i)
 
 	pdp->dpy[i].last = pdp->simtime;
 	dpycmd(pdp, i, cmd);
+}
+
+void
+checkpen(PDP1 *pdp, int i)
+{
+	DispCon *d = &pdp->dpy[i];
+	if(d->fd.ready) {
+		u32 cmd;
+		int n = read(d->fd.fd, &cmd, sizeof(cmd));
+		if(n <= 0)
+			return;
+		// only update pen for main display
+		if(i == 0) {
+			pdp->peny = cmd & 01777;
+			pdp->penx = (cmd>>10) & 01777;
+			pdp->pendown = (cmd>>20) & 1;
+		}
+		waitfd(&d->fd);
+	}
 }
 
 void
@@ -1509,7 +1536,6 @@ handleio(PDP1 *pdp)
 		char c;
 		if(read(pdp->typ_fd.fd, &c, 1) <= 0) {
 			closefd(&pdp->typ_fd);
-			pdp->typ_fd.fd = -1;
 			return;
 		}
 		waitfd(&pdp->typ_fd);
@@ -1535,9 +1561,22 @@ if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 		display(pdp, 1);
 	}
 	if(pdp->dpy_time < pdp->simtime) {
+		// DDP
 		pdp->dpy_time = NEVER;
+		if(pdp->pendown) {
+			int x = mapcoord(pdp->dbx);
+			int y = mapcoord(pdp->dby);
+			int dx = pdp->penx - x;
+			int dy = pdp->peny - y;
+			if(dx*dx + dy*dy <= pdp->penr*pdp->penr) {
+				pdp->lps = 1;
+				pdp->pf |= 010;
+			}
+		}
 		if(pdp->dcp) pdp->ios = 1;
 	}
+	checkpen(pdp, 0);
+	checkpen(pdp, 1);	// ignored
 }
 
 int
@@ -1669,14 +1708,28 @@ handlecmd(PDP1 *pdp, char *line)
 			if(args[2])
 				port = atoi(args[2]);
 
-			if(pdp->dpy[0].fd >= 0)
-				close(pdp->dpy[0].fd);
-			pdp->dpy[0].last = pdp->simtime;
-			pdp->dpy[0].fd = dial(host, port);
-			if(pdp->dpy[0].fd < 0)
+			int fd = dial(host, port);
+			if(fd < 0)
 				strcpy(resp, "can't open display");
-			else
-				nodelay(pdp->dpy[0].fd);
+			else {
+				nodelay(fd);
+				if(pdp->dpy[0].fd.fd >= 0)
+					closefd(&pdp->dpy[0].fd);
+				pdp->dpy[0].last = pdp->simtime;
+				pdp->dpy[0].fd.id = -1;
+				pdp->dpy[0].fd.fd = fd;
+				waitfd(&pdp->dpy[0].fd);
+			}
+		}
+		// pen
+		else if(strcmp(args[0], "pen") == 0) {
+			if(args[1]) {
+				int r = atoi(args[1]);
+				if(r < 3) r = 3;
+				if(r > 16) r = 16;
+				pdp->penr = r;
+			}
+			sprintf(resp, "pen %d", pdp->penr);
 		}
 		// help
 		else if(strcmp(args[0], "?") == 0 ||
@@ -1688,6 +1741,7 @@ handlecmd(PDP1 *pdp, char *line)
 			p += sprintf(p, "p filename            mount tape in punch\n");
 			p += sprintf(p, "l filename            load memory from RIM-file\n");
 			p += sprintf(p, "d [host] [port]       connect to display program\n");
+			p += sprintf(p, "pen [1-6]             set light pen radius\n");
 			p += sprintf(p, "muldiv [on/off]       set/toggle type 10 mul-div option");
 			p += sprintf(p, "audio [on/off]        set/toggle audio output");
 		}

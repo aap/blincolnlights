@@ -16,7 +16,7 @@ void updatelights(PDP1 *pdp, Panel *panel);
 
 struct DispCon
 {
-	int fd;
+	FD fd;
 	u64 last;
 	u32 cmdbuf[128];
 	u32 ncmds;
@@ -101,13 +101,11 @@ struct PDP1
 	int dcp;
 	int dbx, dby;
 	int dint;	// no direct schematics for this
+	int lps;
 	// simulation
-//	int dpy_fd;
-//	int dpy2_fd;
+	int penx, peny, penr, pendown;
 	u64 dpy_defl_time;
 	u64 dpy_time;
-//	u64 dpy_last;
-//	u64 dpy2_last;
 	DispCon dpy[2];
 
 	// reader

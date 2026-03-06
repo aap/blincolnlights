@@ -140,4 +140,7 @@ closefd(FD *fd)
 	write(pollpipe[1], &msg, sizeof(msg));
 	// wait for thread to notice
 	while(((volatile FD**)fds)[i] != nil) usleep(1);
+	assert(fd->fd == -1);
+	assert(fd->id == -1);
+	assert(fd->ready == 0);
 }
