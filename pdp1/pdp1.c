@@ -269,17 +269,17 @@ clr_sbs(PDP1 *pdp)
 	sbs_calc_req(pdp);
 }
 static void
-hold_break(PDP1 *pdp)
-{
-	pdp->b4 |= pdp->req;
-	if(!pdp->sbs16)
-		pdp->b2 = 0;
-	sbs_calc_req(pdp);
-}
-static void
 sbs_sync(PDP1 *pdp)
 {
 	pdp->b3 |= pdp->b2;
+	if(pdp->bc == 1) {
+		// HOLD BREAK
+		pdp->b4 |= pdp->req;
+		if(pdp->sbs16)
+			pdp->b3 &= ~pdp->req;
+		else
+			pdp->b2 = 0;
+	}
 	sbs_calc_req(pdp);
 }
 static void
@@ -804,18 +804,19 @@ defer(PDP1 *pdp)
 		if(pdp->sbs16) {
 			if((MB & 07703) == 1) {
 				pdp->b4 &= ~(1<<((MB&074)>>2));
-				pdp->exd = 1;
+				pdp->exd = 1;	// DEBREAK - not in #49
 				sbs_restore = 1;
+				sbs_calc_req(pdp);
 			}
 		} else {
 			if((MB & 07777) == 1) {
 				pdp->b3 = 0;
 				pdp->b4 = 0;
-				pdp->exd = 1;
+				pdp->exd = 1;	// same
 				sbs_restore = 1;
+				sbs_calc_req(pdp);
 			}
 		}
-		sbs_calc_req(pdp);
 	}
 	TP(2)
 
@@ -1084,7 +1085,6 @@ brkcycle(PDP1 *pdp)
 	TP(3)
 
 	// TP4
-	if(pdp->bc == 1) hold_break(pdp);
 	sbs_sync(pdp);
 	readmem(pdp);
 	if(pdp->bc == 1) IR = 0;
