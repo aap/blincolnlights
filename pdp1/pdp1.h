@@ -77,6 +77,7 @@ struct PDP1
 	u16 req;	// highest prio channel
 	u16 b1;		// on (only type 20)
 	u16 b2;		// req
+	// only these two for SBS256
 	u16 b3;		// req synchronized
 	u16 b4;		// break held
 

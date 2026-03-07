@@ -268,6 +268,7 @@ clr_sbs(PDP1 *pdp)
 		pdp->b2 = 0;
 	sbs_calc_req(pdp);
 }
+// SBS256 works differently here
 static void
 sbs_sync(PDP1 *pdp)
 {
@@ -800,11 +801,13 @@ defer(PDP1 *pdp)
 
 	// TP2
 	mop2379(pdp);
+	// SBS256 works slightly differently here
+	// also need exd=1 and epc can be 00 or 10
 	if(pdp->sbm && IR_JMP && pdp->epc == 0) {
 		if(pdp->sbs16) {
 			if((MB & 07703) == 1) {
 				pdp->b4 &= ~(1<<((MB&074)>>2));
-				pdp->exd = 1;	// DEBREAK - not in #49
+				pdp->exd = 1;	// DEBREAK - not in #49 because SBS256
 				sbs_restore = 1;
 				sbs_calc_req(pdp);
 			}
@@ -812,7 +815,7 @@ defer(PDP1 *pdp)
 			if((MB & 07777) == 1) {
 				pdp->b3 = 0;
 				pdp->b4 = 0;
-				pdp->exd = 1;	// same
+				pdp->exd = 1;	// same but #55 has it
 				sbs_restore = 1;
 				sbs_calc_req(pdp);
 			}
@@ -1129,6 +1132,8 @@ brkcycle(PDP1 *pdp)
 	memclr(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
+	if(pdp->bc == 1) pdp->exd = 0;
+	// SBS256: 1->EXD, HOLD BREAK, JSP->IR, JE->MA (delayed)
 	if(pdp->bc == 3) pdp->cyc = 0;
 	pdp->bc = (pdp->bc+1) & 3;
 	TP(10)
@@ -1721,6 +1726,21 @@ handlecmd(PDP1 *pdp, char *line)
 				waitfd(&pdp->dpy[0].fd);
 			}
 		}
+		// sequence break system
+		// currently 1 and 16 channel system. maybe 256 one day?
+		else if(strcmp(args[0], "sbs") == 0) {
+			if(args[1]) {
+				int r = atoi(args[1]);
+				if(r == 1) pdp->sbs16 = 0;
+				else if(r == 16) pdp->sbs16 = 1;
+				pdp->b4 = 0;
+				pdp->b3 = 0;
+				pdp->b2 = 0;
+				pdp->b1 = 0;
+				sbs_calc_req(pdp);
+			}
+			sprintf(resp, "sbs %d", pdp->sbs16 ? 16 : 1);
+		}
 		// pen
 		else if(strcmp(args[0], "pen") == 0) {
 			if(args[1]) {
@@ -1755,7 +1775,7 @@ handlecmd(PDP1 *pdp, char *line)
 					pdp->muldiv_sw = 0;
 			} else
 				pdp->muldiv_sw = !pdp->muldiv_sw;
-			sprintf(resp, "mul-div now %s", pdp->muldiv_sw ? "on" : "off");
+			sprintf(resp, "muldiv %s", pdp->muldiv_sw ? "on" : "off");
 		}
 		else if(strcmp(args[0], "audio") == 0) {
 			if(args[1]) {
@@ -1767,7 +1787,7 @@ handlecmd(PDP1 *pdp, char *line)
 					doaudio = 0;
 			} else
 				doaudio = !doaudio;
-			sprintf(resp, "audio now %s", doaudio ? "on" : "off");
+			sprintf(resp, "audio %s", doaudio ? "on" : "off");
 		}
 	}
 
