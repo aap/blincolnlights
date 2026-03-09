@@ -133,7 +133,7 @@ void
 closefd(FD *fd)
 {
 	struct FDmsg msg;
-	printf("closing fd %d\n", fd->fd);
+//printf("closing fd %d\n", fd->fd);
 	int i = fd->id;
 	msg.msg = 2;
 	msg.fd = fd;

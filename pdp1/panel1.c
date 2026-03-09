@@ -42,7 +42,7 @@ updatelights(PDP1 *pdp, Panel *panel)
 	if(pdp->run) l5 |= L5_RUN;
 	if(pdp->cyc) l5 |= L5_CYC;
 	if(pdp->df1) l5 |= L5_DF1;
-//	if(pdp->hsc) l5 |= L5_HSC;
+	if(pdp->hsc) l5 |= L5_HSC;
 	if(pdp->bc&1) l5 |= L5_BC1;
 	if(pdp->bc&2) l5 |= L5_BC2;
 	if(pdp->ov1) l5 |= L5_OV1;

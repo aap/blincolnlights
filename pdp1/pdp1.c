@@ -71,6 +71,29 @@ enum {
 };
 #define TP(n) if(pdp->timernd < TP##n##_end) { updatelights(pdp, pdp->panel); pdp->timernd = TP_unreachable; }
 
+
+#define CY0_INST_DONE (!pdp->df1 && pdp->ir >= 030)
+#define CY0_MIDBRK_PERMIT (pdp->ir < 030)
+#define DF_INST_DONE (!pdp->df2 && pdp->ir >= 030)
+#define DF_MIDBRK_PERMIT (pdp->ir < 030 || (IR_JMP || IR_JSP) && pdp->df2)
+
+// have to be careful with those at TP10
+// because that's where we choose the next type of cycle.
+// So the exact state of  cyc, df1, df2, bc, hsc  is crucial
+#define CY1 (pdp->cyc && !pdp->df1 && pdp->bc==0 && !pdp->hsc)
+#define DF (pdp->cyc && pdp->df1)
+#define INST_DONE ((!pdp->cyc && CY0_INST_DONE || DF && DF_INST_DONE || CY1) && !pdp->bc)
+#define MIDBRK_PERMIT (!pdp->cyc && CY0_MIDBRK_PERMIT || DF && DF_MIDBRK_PERMIT)
+
+#define SBS_BREAK_REQ (pdp->sbm && pdp->sbs_seq)
+#define HSC_BREAK pdp->hsc_brk
+#define SBS_BREAK (SBS_BREAK_REQ && !HSC_BREAK)
+#define HSC_SBS_BREAK (SBS_BREAK_REQ || HSC_BREAK)	// == SBS_BREAK || HSC_BREAK
+#define MANUAL_RUN (pdp->single_cyc_sw || pdp->single_inst_sw && INST_DONE)
+// IR_INCORR does not apply to break cycles!
+#define STOP (IR_INCORR || MANUAL_RUN || !pdp->run_enable)
+
+
 static void
 readmem(PDP1 *pdp)
 {
@@ -134,7 +157,12 @@ pwrclr(PDP1 *pdp)
 		pdp->b2 = rand() & 1;
 		pdp->b1 = rand() & 1;
 	}
-	pdp->req = 0;
+	pdp->sbs_seq = 0;	// combinational, could actually be 1
+
+	pdp->hsc = rand() & 1;
+	pdp->hscn = rand() & 7;
+	pdp->hsc_req = 0;
+	pdp->hsc_brk = 0;	// combinational, could actually be 1
 
 	pdp->emc = rand() & 1;
 	pdp->exd = rand() & 1;
@@ -160,6 +188,23 @@ pwrclr(PDP1 *pdp)
 
 	pdp->dpy_defl_time = NEVER;
 	pdp->dpy_time = NEVER;
+
+
+
+	// HACK: on power on the next cycle is undefined
+	// pressing continue would try to execute from an invalid state.
+	// since this emulation does not support such madness
+	// we try for some randomized rudimentary consistency here as not to hit asserts
+	pdp->cyc = pdp->df1 = pdp->df2 = pdp->bc = pdp->hsc = 0;
+	switch(rand() % 10) {
+	case 0: pdp->cyc = 1; break;
+	case 1: pdp->cyc = pdp->df1 = 1; break;
+	case 2: pdp->cyc = pdp->hsc = 1; break;
+	case 3: pdp->cyc = 1; pdp->bc = 1; break;
+	case 4: pdp->cyc = 1; pdp->bc = 2; break;
+	case 5: pdp->cyc = 1; pdp->bc = 3; break;
+	// 6-9: cyc0
+	}
 }
 
 static void
@@ -246,6 +291,7 @@ pc_inc(PDP1 *pdp)
 {
 	PC = (PC+1) & ADDRMASK;
 }
+// SH/RO logic drawing
 static void
 inst_cancel(PDP1 *pdp)
 {
@@ -255,9 +301,29 @@ inst_cancel(PDP1 *pdp)
 }
 
 static void
+hsc_calc_req(PDP1 *pdp)
+{
+	if(pdp->hsc || INST_DONE || MIDBRK_PERMIT)
+		HSC_BREAK = (pdp->hscn & ~pdp->hscn+1);
+	else
+		HSC_BREAK = 0;
+}
+// TP9
+static void
+hsc_reset_sync(PDP1 *pdp)
+{
+	hsc_calc_req(pdp);
+	pdp->hscn &= ~HSC_BREAK;
+}
+// TP9A
+static void hsc_sync(PDP1 *pdp) { pdp->hscn |= pdp->hsc_req; }
+// TP10
+static void hsc_set(PDP1 *pdp) { pdp->hsc = HSC_BREAK; }
+
+static void
 sbs_calc_req(PDP1 *pdp)
 {
-	pdp->req = (pdp->b3 & ~pdp->b3+1) & (pdp->b4 & ~pdp->b4+1)-1;
+	pdp->sbs_seq = (pdp->b3 & ~pdp->b3+1) & (pdp->b4 & ~pdp->b4+1)-1;
 }
 static void
 clr_sbs(PDP1 *pdp)
@@ -275,9 +341,9 @@ sbs_sync(PDP1 *pdp)
 	pdp->b3 |= pdp->b2;
 	if(pdp->bc == 1) {
 		// HOLD BREAK
-		pdp->b4 |= pdp->req;
+		pdp->b4 |= pdp->sbs_seq;
 		if(pdp->sbs16)
-			pdp->b3 &= ~pdp->req;
+			pdp->b3 &= ~pdp->sbs_seq;
 		else
 			pdp->b2 = 0;
 	}
@@ -307,6 +373,9 @@ sc(PDP1 *pdp)
 	pdp->sbm = pdp->sbm_start_sw;
 	clr_sbs(pdp);
 	pdp->b2 = 0;
+
+	pdp->hsc = 0;
+	pdp->hscn = 0;
 
 #ifdef LAILIA
 	pdp->lai = 0;
@@ -604,11 +673,6 @@ shro(PDP1 *pdp)
 	IO = io;
 }
 
-#define CY0_INST_DONE (!pdp->df1 && pdp->ir >= 030)
-#define CY0_MIDBRK_PERMIT (pdp->ir < 030)
-#define DF_INST_DONE (!pdp->df2 && pdp->ir >= 030)
-#define DF_MIDBRK_PERMIT (pdp->ir < 030 || (IR_JMP || IR_JSP) && pdp->df2)
-
 static void
 syncov(PDP1 *pdp)
 {
@@ -619,6 +683,12 @@ syncov(PDP1 *pdp)
 static void
 cycle0(PDP1 *pdp)
 {
+	assert(!pdp->cyc);
+	assert(!DF);
+	assert(!CY1);
+	assert(!pdp->bc);
+	assert(!pdp->hsc);
+
 	int hack = pdp->cychack;
 	pdp->cychack = 0;
 	switch(hack) {
@@ -737,6 +807,7 @@ cycle0(PDP1 *pdp)
 	TP(8)
 
 	// TP9
+	hsc_reset_sync(pdp);
 	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(!pdp->df1 && (IR_JMP || IR_JSP)) mb_to_pc(pdp);
@@ -744,34 +815,22 @@ cycle0(PDP1 *pdp)
 	if(IR_SHRO && (MB & B15)) shro(pdp);
 	if(IR_OPR && (MB & B8) || IR_LAW && (MB & B5)) AC ^= WORDMASK;
 	if(IR_IOT && !pdp->ihs && pdp->ios) pdp->ioh = 0;
-	if(IR_OPR && (MB & B9) ||
-	   IR_INCORR ||
-	   pdp->single_cyc_sw ||
-	   pdp->single_inst_sw && CY0_INST_DONE ||
-	   !pdp->run_enable)
-		pdp->run = 0;
+	if(IR_OPR && (MB & B9) || STOP) pdp->run = 0;
 	clrmd(pdp);
 	TP(9)
 
 	// TP9A
+	hsc_sync(pdp);
 	if(IR_SHRO && (MB & B14)) shro(pdp);
 	if(IR_IOT && pdp->ioh) inst_cancel(pdp);
 	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	hsc_calc_req(pdp);
 	memclr(pdp);
 	syncov(pdp);
 	if(pdp->run) clr_ma(pdp);
-	if(pdp->df1 || pdp->ir < 030) pdp->cyc = 1;
-	if(pdp->sbm && pdp->req) {
-		if(CY0_INST_DONE || CY0_MIDBRK_PERMIT) {
-			pdp->cyc = 1;
-			pdp->bc |= 1;
-			if(CY0_MIDBRK_PERMIT) inst_cancel(pdp);
-assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
-		}
-	}
 	if(IR_SHRO && (MB & B13)) shro(pdp);
 	if(IR_IOT) {
 		if(pdp->ihs) pdp->ioh = 1;
@@ -782,6 +841,13 @@ assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
 #ifdef LAILIA
 	if(pdp->lai) MB = 0;
 #endif
+	if(HSC_SBS_BREAK) {
+		if(MIDBRK_PERMIT) inst_cancel(pdp);
+		pdp->bc |= SBS_BREAK;
+		pdp->cyc = 1;
+	} else if(!CY0_INST_DONE)
+		pdp->cyc = 1;
+	hsc_set(pdp);
 	TP(10)
 	}
 }
@@ -789,6 +855,12 @@ assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
 static void
 defer(PDP1 *pdp)
 {
+	assert(pdp->cyc);
+	assert(DF);
+	assert(!CY1);
+	assert(!pdp->bc);
+	assert(!pdp->hsc);
+
 	int sbs_restore = 0;
 
 	// TP0
@@ -866,13 +938,10 @@ defer(PDP1 *pdp)
 		clrmd(pdp);
 	}
 	// TP9
+	hsc_reset_sync(pdp);
 	mop2379(pdp);
 	writemem(pdp);		// approximate
-	if(IR_INCORR ||
-	   pdp->single_cyc_sw ||
-	   pdp->single_inst_sw && DF_INST_DONE ||
-	   !pdp->run_enable)
-		pdp->run = 0;
+	if(STOP) pdp->run = 0;
 	TP(9)
 
 	// 3.5us after TP2, shortly before TP9A
@@ -880,33 +949,36 @@ defer(PDP1 *pdp)
 		pdp->ov1 = !!(MB & B0);
 		pdp->exd = !!(MB & B1);
 	}
+	hsc_sync(pdp);
 	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	hsc_calc_req(pdp);
 	memclr(pdp);
 	syncov(pdp);
 	if(pdp->run) clr_ma(pdp);
-	if(!pdp->df2) {
-		pdp->df1 = 0;
-		if(pdp->ir >= 030) pdp->cyc = 0;
-	}
-	if(pdp->sbm && pdp->req) {
-		if(DF_INST_DONE || DF_MIDBRK_PERMIT) {
-			pdp->cyc = 1;
-			pdp->bc |= 1;
-			if(DF_MIDBRK_PERMIT) inst_cancel(pdp);
-assert(pdp->cyc && pdp->bc==1 && !pdp->df1 && !pdp->df2);
-		}
-	}
-	pdp->df2 = 0;
 	if(MB & B0) pdp->smb = 1;
+	if(HSC_SBS_BREAK) {
+		if(MIDBRK_PERMIT) inst_cancel(pdp);
+		pdp->bc |= SBS_BREAK;
+	} else if(INST_DONE)
+		pdp->cyc = 0;
+	hsc_set(pdp);
+	if(!pdp->df2) pdp->df1 = 0;
+	pdp->df2 = 0;
 	TP(10)
 }
 
 static void
 cycle1(PDP1 *pdp)
 {
+	assert(pdp->cyc);
+	assert(!DF);
+	assert(CY1);
+	assert(!pdp->bc);
+	assert(!pdp->hsc);
+
 	int hack = pdp->cychack;
 	pdp->cychack = 0;
 	switch(hack) {
@@ -1000,32 +1072,35 @@ cycle1(PDP1 *pdp)
 	TP(8)
 
 	// TP9
+	hsc_reset_sync(pdp);
 	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(IR_CALJDA) ma_to_pc(pdp);
 	if((IR_ADD || IR_SUB) && (AC&B0) == (MB&B0)) pdp->ov2 = 0;
 	if(IR_SUB || IR_DIS && (IO & B17)) AC ^= WORDMASK;
 	if(IR_SAD || IR_SAS) AC ^= MB;
-	if(IR_INCORR ||
-	   pdp->single_cyc_sw ||
-	   pdp->single_inst_sw ||
-	   !pdp->run_enable)
-		pdp->run = 0;
+	if(STOP) pdp->run = 0;
 	clrmd(pdp);
 	TP(9)
 
 	// TP9A
+	hsc_sync(pdp);
 	if((IR_ADD || IR_DIS) && AC == 0777777) AC = 0;
 	if(IR_CALJDA) pc_inc(pdp);
 	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	hsc_calc_req(pdp);
 	memclr(pdp);
 	syncov(pdp);
-	pdp->cyc = 0;
 	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
+	if(HSC_SBS_BREAK)
+		pdp->bc |= SBS_BREAK;
+	else
+		pdp->cyc = 0;
+	hsc_set(pdp);
 	if(IR_MUL) {
 		if(MB & B0)
 			MB ^= WORDMASK;
@@ -1058,11 +1133,17 @@ cycle1(PDP1 *pdp)
 static void
 brkcycle(PDP1 *pdp)
 {
+	assert(pdp->cyc);
+	assert(!DF);
+	assert(!CY1);
+	assert(pdp->bc);
+	assert(!pdp->hsc);
+
 	// TP0
 	if(IR_SHRO && (MB & B12)) shro(pdp);
 	if(pdp->bc == 1 && pdp->sbs16) {
 		int be = 0;
-		for(int r = pdp->req; !(r&1); r >>= 1)
+		for(int r = pdp->sbs_seq; !(r&1); r >>= 1)
 			be++;
 		MA |= be<<2;
 	}
@@ -1114,42 +1195,127 @@ brkcycle(PDP1 *pdp)
 	TP(8)
 
 	// TP9
+	hsc_reset_sync(pdp);
 	mop2379(pdp);
 	writemem(pdp);		// approximate
 	if(pdp->bc == 1) ma_to_pc(pdp);
-	if(pdp->single_cyc_sw ||
-	   !pdp->run_enable)
-		pdp->run = 0;
+	if(pdp->single_cyc_sw || !pdp->run_enable) pdp->run = 0;
 	clrmd(pdp);
 	TP(9)
 
 	// TP9A
+	hsc_sync(pdp);
 	pc_inc(pdp);
 	TP(9a)
 
 	// TP10
 	sbs_reset_sync(pdp);
+	hsc_calc_req(pdp);
 	memclr(pdp);
+	syncov(pdp);
 	if(pdp->run) clr_ma(pdp);
 	if(MB & B0) pdp->smb = 1;
 	if(pdp->bc == 1) pdp->exd = 0;
-	// SBS256: 1->EXD, HOLD BREAK, JSP->IR, JE->MA (delayed)
+	// SBS256: 1->EXD, HOLD BREAK, JSP->IR, 1->df1, JE->MA (delayed)
 	if(pdp->bc == 3) pdp->cyc = 0;
 	pdp->bc = (pdp->bc+1) & 3;
+	// TODO: can get into hsc with cyc0 here, bad!
+	HSC_BREAK = 0;	// be safe for now
+	hsc_set(pdp);
+	TP(10)
+}
+
+static void
+hscycle(PDP1 *pdp)
+{
+	assert(pdp->cyc);
+	assert(!DF);
+	assert(!CY1);
+	assert(!pdp->bc);
+	assert(pdp->hsc);
+
+	// TP0
+	if(IR_SHRO && (MB & B12)) shro(pdp);
+// TODO: HASM -> MA
+// WORD XFER to acknowledge device, drop request before TP9A
+	TP(0)
+
+	// TP1
+	if(IR_SHRO && (MB & B11)) shro(pdp);
+	pdp->emc = 0;
+	TP(1)
+
+	// TP2
+	mop2379(pdp);
+	if(IR_SHRO && (MB & B10)) shro(pdp);
+	TP(2)
+
+	// TP3
+	mop2379(pdp);
+	if(IR_SHRO && (MB & B9)) shro(pdp);
+	MB = 0;
+	TP(3)
+
+	// TP4
+	sbs_sync(pdp);
+	readmem(pdp);
+	IR = 0;
+	TP(4)
+// TODO: device can grab MB now
+
+	// TP5
+// TODO: clear MB if input
+	TP(5)
+
+	// TP6
+	TP(6)
+
+	// TP6a
+	TP(6a)
+
+	// TP7
+	mop2379(pdp);
+// TODO: HSBM -> MB if input
+	TP(7)
+
+	// TP8
+	inhibit(pdp);
+	TP(8)
+
+	// TP9
+	hsc_reset_sync(pdp);
+	mop2379(pdp);
+	writemem(pdp);		// approximate
+	clrmd(pdp);
+	if(pdp->single_cyc_sw || !pdp->run_enable) pdp->run = 0;
+	TP(9)
+
+	// TP9A
+	hsc_sync(pdp);
+	TP(9a)
+
+	// TP10
+	sbs_reset_sync(pdp);
+	hsc_calc_req(pdp);
+	memclr(pdp);
+	syncov(pdp);
+	if(pdp->run) clr_ma(pdp);
+	if(MB & B0) pdp->smb = 1;
+	if(HSC_SBS_BREAK)
+		pdp->bc |= SBS_BREAK;
+	else
+		pdp->cyc = 0;
+	hsc_set(pdp);
 	TP(10)
 }
 
 void
 cycle(PDP1 *pdp)
 {
-// TODO: these can be wrong after power on
-// how do we handle that?
-//	assert(pdp->cyc || pdp->bc==0);
-//	assert(!pdp->df1 || pdp->bc==0);
-
 	pdp->timernd = rand() % TP_unreachable;
 	// a cycle takes 5μs
-	if(pdp->bc) brkcycle(pdp);
+	if(pdp->hsc) hscycle(pdp);
+	else if(pdp->bc) brkcycle(pdp);
 	else if(!pdp->cyc) cycle0(pdp);
 	else if(pdp->df1) defer(pdp);
 	else cycle1(pdp);

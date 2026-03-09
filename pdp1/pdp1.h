@@ -74,12 +74,20 @@ struct PDP1
 	// seq break
 	int sbs16;	// 16 channel, type 20
 	// one bit per channel if type 20
-	u16 req;	// highest prio channel
+	// lower bits are higher priority for easy bit hacks
+	u16 sbs_seq;	// highest prio channel
 	u16 b1;		// on (only type 20)
 	u16 b2;		// req
 	// only these two for SBS256
 	u16 b3;		// req synchronized
 	u16 b4;		// break held
+
+	// 3 high speed channels (but at least sn #6 had 4)
+	int hsc;
+	uint hscn;	// like b3
+	// peripheral interface
+	uint hsc_req;	// like b2
+	uint hsc_brk;	// like sbs_seq but gated by hsc enable
 
 	// type 10, multiply-divide
 	int muldiv_sw;

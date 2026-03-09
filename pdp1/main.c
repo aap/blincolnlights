@@ -2,6 +2,7 @@
 #include "pdp1.h"
 #include "args.h"
 
+#include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -299,6 +300,7 @@ main(int argc, char *argv[])
 	memp = pdp->core;
 	memsz = MAXMEM;
 
+	srand(time(nil));
 	atexit(exitcleanup);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, sighandler);
