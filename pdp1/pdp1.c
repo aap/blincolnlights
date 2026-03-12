@@ -5,6 +5,8 @@
 
 // PDP-1D but probably also on some C's?
 #define LAILIA
+// type 33 symbol generator for type 30G/H
+#define SYMGEN
 
 #define B0 0400000
 #define B1 0200000
@@ -1330,6 +1332,123 @@ throttle(PDP1 *pdp)
 	}
 }
 
+static void
+disp_ddp(PDP1 *pdp)
+{
+	if(pdp->sas) {
+		pdp->lps = 1;
+		// LPF - does this really set pf3? how do we know?
+		pdp->pf |= 010;
+	}
+
+	if(pdp->dcp) pdp->ios = 1;
+}
+
+#ifdef SYMGEN
+// NB: space directly pulls plt2_comp to 1
+static void
+g_cpp(PDP1 *pdp)
+{
+	pdp->g.sr &= ~3;
+	pdp->g.plot = 0;
+	pdp->g.done = 0;
+
+	pdp->g.en_stop = 0;
+	pdp->g.plt2_comp = pdp->g.space;
+	pdp->g.cnt5 = 0;
+}
+// next column
+static void
+g_scp(PDP1 *pdp)
+{
+	pdp->g.cnt7 = 0;
+	if(pdp->g.cnt5 == 4) {
+		pdp->g.cnt5 = 0;
+		pdp->g.plt2_comp ^= 1;
+	} else
+		pdp->g.cnt5++;
+	if(pdp->g.space) pdp->g.plt2_comp = 1;
+}
+// at new coordinate and before new symbol (left half)
+static void
+g_csr(PDP1 *pdp)
+{
+	// 1μs later
+	pdp->g.sr &= 3;
+	g_scp(pdp);
+	g_cpp(pdp);
+
+	pdp->sas = 0;
+}
+static void
+g_plot(PDP1 *pdp)
+{
+	if(pdp->g.sr & B0) {
+		// plot point
+		pdp->dpy_time += US(6);
+		int sz = pdp->g.cs+2;
+		pdp->g.xoff = pdp->g.cnt5*sz;
+		pdp->g.yoff = (pdp->g.cnt7 - pdp->g.sub*2)*sz;
+	} else {
+		// no point
+		pdp->dpy_time += US(3);
+		pdp->g.xoff = -1;
+	}
+}
+// for half-symbol or space
+static void
+g_start(PDP1 *pdp)
+{
+	pdp->g.sr |= IO;
+	pdp->g.plot = 1;
+	pdp->g.done = 0;
+	g_plot(pdp);
+}
+static void
+g_ddp(PDP1 *pdp)
+{
+	pdp->dpy_time = NEVER;
+
+	pdp->g.en_stop = 0;
+	pdp->g.space = 0;
+	pdp->g.done = 1;
+	// 1μs later
+	pdp->g.sr &= 3;
+
+	disp_ddp(pdp);
+}
+// after intensification - this is where the fun stuff happens
+static void
+g_shift(PDP1 *pdp)
+{
+	int rep = pdp->g.plot;
+	pdp->g.sr = (pdp->g.sr<<1) & WORDMASK;
+
+	// spl - done with first half after point just shifted in
+	if(!pdp->g.space && pdp->g.cnt5==2 && pdp->g.cnt7==1)
+		pdp->g.plot = 0;
+
+	if(pdp->g.inc && pdp->g.plt2_comp) {
+		pdp->g.en_stop = 1;
+		pdp->dbx = (pdp->dbx+4)&01777;
+	}
+
+	if(pdp->g.cnt7 == 6)
+		g_scp(pdp);
+	else // count
+		pdp->g.cnt7 = (pdp->g.cnt7+1)&7;
+
+	if(!pdp->g.inc && pdp->g.plt2_comp ||
+	   pdp->g.en_stop && pdp->g.cnt7 == pdp->g.cs+3)
+		pdp->g.plot = 0;
+
+	// repeat or done
+	if(rep) g_plot(pdp);
+	else g_ddp(pdp);
+
+}
+#endif
+
 // pulse=0: TP7
 // pulse=1: TP10
 static void
@@ -1397,24 +1516,96 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 		}
 		break;
 
-	case 007:	// dpy
+#ifdef SYMGEN
+#define DPY !(MB & 0002000)
+	case 007:	// dpy, sdb
 		if(!pulse) {
 			// CDP
+			pdp->dint = 0;
+			pdp->lps = 0;
+			// cyb
+			pdp->dby = 0;
+			// TODO: why csr at both cyb and clx? PDP-4?
+			g_csr(pdp);
+			// clx
+			g_csr(pdp);
+			// 1μs later cxb
 			pdp->dbx = 0;
+			pdp->g.sub = 0;
+		} else {
+			pdp->dcp = nac;
+			// LDP
+			pdp->dint |= (MB>>6)&7;
+			// lxb
+			pdp->dbx |= AC>>8;
+			// lyb
+			pdp->dby |= IO>>8;
+			if(DPY) {
+				pdp->dpy_defl_time = pdp->simtime + US(35);
+				pdp->g.xoff = 0;
+				pdp->g.yoff = 0;
+			}
+		}
+		break;
+
+	case 026:	// glf, gsp
+		if(pulse) {
+			// LDF
+			if(!DPY) {
+				// glf
+				pdp->g.inc = !!(IO&4);
+				pdp->g.cs = IO&3;
+				pdp->g.space = 0;
+			} else {
+				pdp->dcp = nac;
+				// gsp
+				pdp->g.space = 1;
+				g_scp(pdp);
+				// 1μs later
+				g_start(pdp);
+			}
+		}
+		break;
+	case 027:	// gpl, gpr, gcf
+		if(pulse) {
+			if(MB & 0100) {	// not in #48 - no light pen?
+				// RESET
+				// conflicting drawings here
+				if(!DPY) pdp->lps = 0;
+			} else {
+				pdp->dcp = nac;
+				// PLT
+				if(!DPY) {
+					pdp->g.sub = IO&1;
+					g_csr(pdp);
+				}
+				// G: 3.1μs later, H: 1μs later
+				g_start(pdp);
+			}
+		}
+		break;
+#undef DPY
+#else
+	case 007:	// dpy
+		if(!pulse) {
+			// CDP - low two bits of dby actually cleared by chb
+			// chb
+			pdp->dbx = 0;
+			// cvb
 			pdp->dby = 0;
 			pdp->dint = 0;
 			pdp->lps = 0;
 		} else {
-			// LDP
 			pdp->dcp = nac;
+			// LDP
+			// lbp
 			pdp->dbx |= AC>>8;
 			pdp->dby |= IO>>8;
 			pdp->dint |= (MB>>6)&7;
 			pdp->dpy_defl_time = pdp->simtime + US(35);
-			// TODO: where did that 15 come from? schematics say 10
-			pdp->dpy_time = pdp->dpy_defl_time + US(15);
 		}
 		break;
+#endif
 
 	case 011:	// spacewar controllers
 		// simple but stupid version for now
@@ -1498,11 +1689,11 @@ iot_pulse(PDP1 *pdp, int pulse, int dev, int nac)
 static void
 iot(PDP1 *pdp, int pulse)
 {
-	//   i
-	// xx0 0aa
-	// xx0 1aa	nac
-	// xx1 0aa	nac
-	// xx1 1aa
+	//       i
+	// 111 010 0
+	// 111 010 1	nac
+	// 111 011 0	nac	ioh
+	// 111 011 1		ioh
 	int nac = (MB & (B5|B6)) == B5 || (MB & (B5|B6)) == B6;
 	int dev = MB & 077;
 	// 0 -> IO ON IOT also available for other devices
@@ -1558,7 +1749,7 @@ agedisplay(PDP1 *pdp, int i)
 		// increase interval during fade out
 		// to reduce number of age-commands
 		if(d->agetime < 1000*1000)
-			d->agetime += d->agetime/6;
+			d->agetime += d->agetime/10;
 	}
 }
 
@@ -1568,8 +1759,12 @@ int mapcoord(int x) {
 }
 
 void
-display(PDP1 *pdp, int i)
+display(PDP1 *pdp, int xoff, int yoff, int i)
 {
+	int x = mapcoord(pdp->dbx) + xoff;
+	int y = mapcoord(pdp->dby) + yoff;
+	if(x < 0 || x > 1023 || y < 0 || y > 1023)
+		return;
 	// need to make sure dt field doesn't overflow cmd
 	pdp->dpy[i].agetime = 510;
 	agedisplay(pdp, i);
@@ -1577,8 +1772,11 @@ display(PDP1 *pdp, int i)
 	pdp->dpy[i].agetime = 50*1000;
 	if(pdp->dpy[i].fd.fd < 0)
 		return;
-	int x = mapcoord(pdp->dbx);
-	int y = mapcoord(pdp->dby);
+	if(pdp->pendown) {
+		int dx = pdp->penx - x;
+		int dy = pdp->peny - y;
+		pdp->sas |= dx*dx + dy*dy <= pdp->penr*pdp->penr;
+	}
 	int dt = (pdp->simtime - pdp->dpy[i].last)/1000;
 	int cmd = x | (y<<10) | (dt<<23);
 	int in = pdp->dint;
@@ -1726,26 +1924,33 @@ if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 	}
 
 	/* Display */
+#ifdef SYMGEN
 	if(pdp->dpy_defl_time < pdp->simtime) {
+		pdp->dpy_time = pdp->dpy_defl_time + US(4);
 		pdp->dpy_defl_time = NEVER;
-		display(pdp, 0);
-		display(pdp, 1);
+	}
+	while(pdp->dpy_time < pdp->simtime) {
+		// check if just delay or also intensification
+		if(pdp->g.xoff >= 0) {
+			display(pdp, pdp->g.xoff, pdp->g.yoff, 0);
+			display(pdp, pdp->g.xoff, pdp->g.yoff, 1);
+		}
+		g_shift(pdp);
+	}
+#else
+	if(pdp->dpy_defl_time < pdp->simtime) {
+		// TODO: where did that 15 come from? schematics say 10
+		pdp->dpy_time = pdp->dpy_defl_time + US(15);
+		pdp->dpy_defl_time = NEVER;
 	}
 	if(pdp->dpy_time < pdp->simtime) {
-		// DDP
 		pdp->dpy_time = NEVER;
-		if(pdp->pendown) {
-			int x = mapcoord(pdp->dbx);
-			int y = mapcoord(pdp->dby);
-			int dx = pdp->penx - x;
-			int dy = pdp->peny - y;
-			if(dx*dx + dy*dy <= pdp->penr*pdp->penr) {
-				pdp->lps = 1;
-				pdp->pf |= 010;
-			}
-		}
-		if(pdp->dcp) pdp->ios = 1;
+		pdp->sas = 0;
+		display(pdp, 0, 0, 0);
+		display(pdp, 0, 0, 1);
+		disp_ddp(pdp);
 	}
+#endif
 	checkpen(pdp, 0);
 	checkpen(pdp, 1);	// ignored
 }

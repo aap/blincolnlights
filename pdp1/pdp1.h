@@ -109,13 +109,31 @@ struct PDP1
 	// display
 	int dcp;
 	int dbx, dby;
-	int dint;	// no direct schematics for this
+	int dint;
 	int lps;
 	// simulation
 	int penx, peny, penr, pendown;
+	int sas;	// saw a spot, set at DDP
 	u64 dpy_defl_time;
 	u64 dpy_time;
 	DispCon dpy[2];
+
+	// type 33, symbol generator
+	struct {
+		int inc;
+		int cs;
+		int space;
+		int sub;
+		Word sr;
+		int plot;
+		int done;
+		int en_stop;
+		int plt2_comp;
+		int cnt5, cnt7;
+
+		// analog offset
+		int xoff, yoff;
+	} g;
 
 	// reader
 	int rcp;
