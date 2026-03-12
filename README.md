@@ -119,6 +119,7 @@ This one has not been tested much yet.
 The only emulated peripheral is a teletype.
 
 The emulator is compatible with the PDP-1 panel.
+Press start up for load address; the major state is shown in the program flags.
 
 TODO: virtual PDP-5 panel. should also be mostly compatible with a PiDP-8.
 
