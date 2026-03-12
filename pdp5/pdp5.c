@@ -502,7 +502,7 @@ tick(PDP5 *pdp)
 	int re = tg & e;
 	int fe = ~tg & e;
 
-	if(fe&TG1) tp1(pdp);
+	if(fe&TG1 && (pdp->run || pdp->io_hlt || KEY_EX_DP)) tp1(pdp);
 	if(re&TG3 && ptg&TG2) tp3(pdp);
 	if(fe&TG2) tp4(pdp);
 	if(re&TG0) tp5(pdp);
