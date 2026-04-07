@@ -2,6 +2,7 @@
 #include "pdp6.h"
 #include "args.h"
 
+#include <inttypes.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
@@ -58,7 +59,7 @@ readmemory(const char *path)
 	while(p = fgets(line, sizeof(line), f)) {
 		if(*p == 'd') {
 			p++;
-			sscanf(p, "%o %llo", &a, &d);
+			sscanf(p, "%o %"PRIo64, &a, &d);
 			memory[a] = d;
 		} else if(*p == 'g') {
 			p++;
@@ -113,7 +114,7 @@ dumpmem(const char *file, Word *mem, Hword size)
 	for(a = 0; a < size; a++)
 		if(mem[a] != 0){
 			fprintf(f, "%06o/	", a);
-			fprintf(f, "%012llo\n", mem[a]);
+			fprintf(f, "%012"PRIo64"\n", mem[a]);
 		}
 	fclose(f);
 }

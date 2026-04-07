@@ -2,6 +2,7 @@
 #include "pdp6.h"
 #include "args.h"
 
+#include <inttypes.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -210,12 +211,12 @@ void
 pulse(PDP6 *pdp, const char *name)
 {
 	trace("%s", name);
-//	trace("\tAR/%012llo MQ/%012llo MB/%012llo", AR, MQ, MB);
+//	trace("\tAR/%012"PRIo64" MQ/%012"PRIo64" MB/%012"PRIo64, AR, MQ, MB);
 //	trace(" SC/%03o FE/%03o", SC, FE);
-	trace("\tMB/%012llo AR/%012llo MQ/%012llo", MB, AR, MQ);
+	trace("\tMB/%012"PRIo64" AR/%012"PRIo64" MQ/%012"PRIo64, MB, AR, MQ);
 	trace(" FE/%03o SC/%03o", FE, SC);
 	trace(" IR/%06o PC/%06o MA/%06o", IR, PC, MA);
-	trace(" %llu", simtime);
+	trace(" %"PRIu64, simtime);
 	trace("\n");
 }
 
@@ -359,7 +360,7 @@ rdrq(PDP6 *pdp, int ret)
 		pdp->cycling = 0;
 	else
 		FF(mc_rd, 0);
-trace("RD\t\t%06o  %06o %d -> %012llo\n", MA, pdp->rla, pdp->key_rim_sbr, MB);
+trace("RD\t\t%06o  %06o %d -> %012"PRIo64"\n", MA, pdp->rla, pdp->key_rim_sbr, MB);
 }
 
 static void
@@ -396,7 +397,7 @@ wrrq(PDP6 *pdp, int ret)
 		pdp->cycling = 0;
 	else
 		FF(mc_rd, 0);
-trace("WR\t\t%06o  %06o %d <- %012llo\n", MA, pdp->rla, pdp->key_rim_sbr, MB);
+trace("WR\t\t%06o  %06o %d <- %012"PRIo64"\n", MA, pdp->rla, pdp->key_rim_sbr, MB);
 }
 
 // TODO: actually do these properly
@@ -1161,8 +1162,8 @@ end_measure(PDP6 *pdp)
 	u64 sim_diff = pdp->sim_end - pdp->sim_start;
 	u64 real_diff = pdp->real_end - pdp->real_start;
 	printf("ran for:\n");
-	printf("real: %lld\n", real_diff);
-	printf("sim : %lld\n", sim_diff);
+	printf("real: %"PRId64"\n", real_diff);
+	printf("sim : %"PRId64"\n", sim_diff);
 	printf("%%   : %f\n", (double)sim_diff/real_diff);
 }
 
