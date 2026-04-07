@@ -131,9 +131,9 @@ handlenetcmd(int fd, void *arg)
 void
 connectdpy(PDP1 *pdp, DispCon *d, int fd)
 {
-	if(d->fd.fd >= 0) {
-		close(fd);
-	} else {
+	if(d->fd.fd >= 0)
+		closefd(&d->fd);
+	else {
 		nodelay(fd);
 		d->fd.fd = fd;
 		d->fd.id = -1;
@@ -214,7 +214,7 @@ readmem(const char *file, Word *mem, Word size)
 				break;
 			else if('0' <= *s && *s <= '7'){
 				w = strtol(s, &s, 8);
-				if(*s == ':'){
+				if(*s == ':' || *s == '/'){
 					a = w;
 					s++;
 				}else if(a < size)

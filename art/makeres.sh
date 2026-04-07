@@ -5,5 +5,6 @@ for i in $files; do
 	xxd -i ${i}.png
 done >panelart.inc
 xxd -i pdp1_panel.png >pdp1art.inc
+xxd -i pdp6_op_panel.png >pdp6art.inc
 xxd -i ww_panel.png >wwart.inc
 xxd -i b18_panel.png >b18art.inc
