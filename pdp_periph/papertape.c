@@ -4,6 +4,7 @@ typedef struct {
 	Component c;
 	int fd;
 	struct pollfd *pfd;
+	int port;
 
 	unsigned char *buf;
 	int buflen;
@@ -16,6 +17,7 @@ typedef struct {
 	Component c;
 	int fd;
 	struct pollfd *pfd;
+	int port;
 
 	int *buf;
 	int buflen;
@@ -253,7 +255,7 @@ void
 connectptr(Reader *ptr)
 {
 	struct pollfd *pfd = ptr->pfd;
-	pfd->fd = dial(host, ptrport);
+	pfd->fd = dial(host, ptr->port);
 	ptr->fd = pfd->fd;
 	if(pfd->fd < 0) {
 		pfd->events = 0;
@@ -313,7 +315,7 @@ void
 connectptp(Punch *ptp)
 {
 	struct pollfd *pfd = ptp->pfd;
-	pfd->fd = dial(host, ptpport);
+	pfd->fd = dial(host, ptp->port);
 	ptp->fd = pfd->fd;
 	if(pfd->fd < 0) {
 		pfd->events = 0;

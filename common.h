@@ -24,7 +24,7 @@ int dial(const char *host, int port);
 int serve1(int port);
 struct PortHandler {
 	int port;
-	void (*handle)(int fd, void *arg);
+	void (*handle)(int fd, void *arg, int port);
 };
 void serveN(struct PortHandler *ports, int nports, void *arg);
 void nodelay(int fd);

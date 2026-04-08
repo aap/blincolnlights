@@ -98,7 +98,6 @@ readwrite(int telfd, int ttyfd)
 					c = readiac(telfd);
 				if(c < 0)
 					continue;
-printf("got char %o\n", c);
 				c |= 0200;	// needed?
 				write(ttyfd, &c, 1);
 			}

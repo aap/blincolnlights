@@ -21,6 +21,7 @@
 struct Ux555
 {
 	int fd;
+	FD remotefd;
 
 	u8 *buf;
 	int size, pos;
@@ -28,6 +29,9 @@ struct Ux555
 	bool flapping;
 	u64 timer;
 	bool tp;
+
+	u64 startstoptimer;
+	int targetpos;
 
 	bool wrlock;
 	int num;	// 0-7
@@ -85,6 +89,23 @@ struct Ut551
 
 
 
+void
+sendstatus(Ux555 *ux)
+{
+	if(ux->remotefd.fd > 0) {
+		int cmd = ux->pos;
+		cmd |= ux->num<<20;
+		cmd |= ux->wrlock<<23;
+		if(ux->go) {
+			cmd |= (!ux->rev)<<24;
+			cmd |= ux->rev<<25;
+		}
+		if(ux->buf)
+			cmd |= 1<<26;
+		write(ux->remotefd.fd, &cmd, 4);
+	}
+}
+
 Ux555*
 attach_ux(Ut551 *ut, int num)
 {
@@ -92,6 +113,8 @@ attach_ux(Ut551 *ut, int num)
 	Ux555 *ux = malloc(sizeof(Ux555));
 
 	ux->fd = -1;
+	ux->remotefd.id = -1;
+	ux->remotefd.fd = -1;
 	ux->buf = nil;
 	ux->size = 0;
 	ux->pos = 0;
@@ -101,6 +124,7 @@ attach_ux(Ut551 *ut, int num)
 	ux->num = num & 7;
 	ux->go = 0;
 	ux->rev = 0;
+	ux->startstoptimer = 0;
 
 	for(i = 0; i < 8; i++)
 		if(ut->transports[i] == nil) {
@@ -129,6 +153,8 @@ uxunmount(Ux555 *ux)
 
 	free(ux->buf);
 	ux->buf = nil;
+
+	sendstatus(ux);
 }
 
 void
@@ -156,49 +182,59 @@ uxmount(Ux555 *ux, const char *path)
 	ux->go = 0;
 	ux->rev = 0;
 printf("μt unit %d file <%s>, len %d lock? %d\n", ux->num, path, ux->size, ux->wrlock);
+
+	sendstatus(ux);
 }
 
 static void
 uxmove(Ux555 *ux)
 {
-	if(!ux->go || ux->timer >= simtime)
-		return;
-	ux->timer += MOVEDLY;
-	if(ux->rev) {
-		if(--ux->pos < 0)
-//printf("flap back\n"),
-			ux->flapping = 1;
-	} else {
-		if(++ux->pos >= ux->size)
-//printf("flap fwd\n"),
-			ux->flapping = 1;
+	while(ux->timer < simtime) {
+		if(ux->timer < ux->startstoptimer) {
+			int dt = ux->startstoptimer - ux->timer;
+			int dist = (ux->targetpos - ux->pos);
+			int nmoves = (dt+MOVEDLY)/MOVEDLY;
+			ux->pos = dist / nmoves;
+		} else if (ux->go) {
+			if(ux->rev) {
+				if(--ux->pos < 0)
+					//printf("flap back\n"),
+					ux->flapping = 1;
+			} else {
+				if(++ux->pos >= ux->size)
+					//printf("flap fwd\n"),
+					ux->flapping = 1;
+			}
+			if(!ux->flapping)
+				ux->tp = 1;
+		}
+		ux->timer += MOVEDLY;
 	}
-	if(!ux->flapping)
-		ux->tp = 1;
 }
 
 static void
 uxsetmotion(Ux555 *ux, int go, int rev)
 {
+	int update = ux->go != go || ux->rev != rev;
 	if(ux->go != go) {
 		if(!ux->go) {
-//printf("start transport\n");
 			// start transport
-			ux->timer = simtime + STARTDLY;
-			ux->pos += rev ? -STARTDIST : STARTDIST;
+			ux->startstoptimer = simtime + STARTDLY;
+			ux->targetpos = ux->pos + rev ? -STARTDIST : STARTDIST;
 		} else {
 			// stop transport
-//printf("stop transport\n");
-			ux->pos += ux->rev ? -STOPDIST : STOPDIST;
+			ux->startstoptimer = simtime + STOPDLY;
+			ux->targetpos = ux->pos + ux->rev ? -STOPDIST : STOPDIST;
 		}
 		ux->go = go;
 	} else if(ux->go && ux->rev != rev) {
-//printf("turn transport\n");
 		// turn around transport
-		ux->timer = simtime + TURNDLY;
-		ux->pos += rev ? -TURNDIST : TURNDIST;
+		ux->startstoptimer = simtime + TURNDLY;
+		ux->targetpos = ux->pos + rev ? -TURNDIST : TURNDIST;
 	}
 	ux->rev = rev;
+	if(update)
+		sendstatus(ux);
 }
 
 
@@ -412,11 +448,29 @@ tp4(Ut551 *ut)
 }
 
 static void
+handle_ux(Ux555 *ux)
+{
+	int req;
+	if(readn(ux->remotefd.fd, &req, 4)) {
+		closefd(&ux->remotefd);
+		return;
+	}
+	waitfd(&ux->remotefd);
+	if(req & 0x80000000)
+		sendstatus(ux);
+}
+
+static void
 cycle_ut(PDP6 *pdp, IOdev *dev, int pwr)
 {
 	int i;
 	Ut551 *ut = (Ut551*)dev->dev;
 	Ux555 *ux;
+
+	for(i = 0; i < 8; i++)
+		if((ux = ut->transports[i]) &&
+		   ux->remotefd.fd >= 0 && ux->remotefd.ready)
+			handle_ux(ux);
 
 	if(!pwr) {
 		ut->dlyend = NEVER;
@@ -613,4 +667,21 @@ attach_ut(PDP6 *pdp, Dc136 *dc)
 	installdev(pdp, &ut_dev);
 	installdev(pdp, &uts_dev);
 	return &ut;
+}
+
+// network
+void
+handleut(int fd, void *arg, int port)
+{
+//	PDP6 *pdp = (PDP6*)arg;
+	int n = (port-1660)&7;
+	nodelay(fd);
+	Ux555 *ux = ut.transports[n];
+	if(ux) {
+		ux->remotefd.fd = fd;
+		waitfd(&ux->remotefd);
+		sendstatus(ux);
+	} else {
+		close(fd);
+	}
 }

@@ -18,6 +18,7 @@ struct Point
 typedef struct {
 	Component c;
 	int fd;
+	int port;
 
 	int flip;
 	int indices[1024*1024];
@@ -152,6 +153,8 @@ outcolor
 "	vec4 yel = mix(yphos2, yphos1, yellow.x);\n"
 "	float a = 0.663 * (yel.a + (1.0-cos(3.141569*yel.a))/2.0)/2.0;\n"
 "	vec4 color = bphos1*white.x*white.z + yel*a;\n"
+//"	color = vec4(white.x);\n"
+//"	color.z = 1.0;\n"
 output
 "}\n";
 
@@ -256,6 +259,7 @@ drawDisplay(Display *d)
 	glBindTexture(GL_TEXTURE_2D, d->yellowTex[d->flip]);
 
 	glUseProgram(combine_program);
+	glDisable(GL_BLEND);
 	setvbo(vbo);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 

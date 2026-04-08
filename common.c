@@ -83,6 +83,7 @@ socketlisten(int port)
 	if(bind(fd, (struct sockaddr*)&server, sizeof(server)) < 0) {
 		close(fd);
 		perror("error: bind");
+		fprintf(stderr, "port %d\n", port);
 		return -1;
 	}
 	listen(fd, 1);
@@ -175,7 +176,7 @@ serveN(struct PortHandler *ports, int nports, void *arg)
 				len = sizeof(client);
 				confd = accept(pfds[i].fd, (struct sockaddr*)&client, &len);
 				if(confd >= 0)
-					ports[i].handle(confd, arg);
+					ports[i].handle(confd, arg, ports[i].port);
 			} else if(pfds[i].revents) {
 				printf("weird stuff on port %d\n", ports[i].port);
 			}

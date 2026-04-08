@@ -154,9 +154,9 @@ init(void)
 	mi_l = e; e += 36;
 	pc_l = e; e += 18;
 	ma_l = e; e += 18;
-	pih_l = e; e += 8;
-	pir_l = e; e += 8;
-	pio_l = e; e += 8;
+	pih_l = e; e += 7;
+	pir_l = e; e += 7;
+	pio_l = e; e += 7;
 	misc_l = e;
 
 	e = switches;

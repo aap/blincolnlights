@@ -123,6 +123,7 @@ const bool dothrottle = 1;
 
 // TODO: this sucks
 Dis340 *dis;
+Ut551 *ut;
 Ux555 *ux1;
 Ux555 *ux2;
 Ux555 *ux3;
@@ -193,7 +194,7 @@ initemu(PDP6 *pdp)
 	attach_tty(pdp);
 	dis = attach_dis(pdp);
 	Dc136 *dc = attach_dc(pdp);
-	Ut551 *ut = attach_ut(pdp, dc);
+	ut = attach_ut(pdp, dc);
 	ux1 = attach_ux(ut, 1);
 	ux2 = attach_ux(ut, 2);
 	ux3 = attach_ux(ut, 3);
@@ -308,7 +309,7 @@ stopmusic();
 }
 
 void 
-handledis(int fd, void *arg)
+handledis(int fd, void *arg, int port)
 {
 //	PDP6 *pdp = (PDP6*)arg;
 	nodelay(fd);
@@ -316,7 +317,7 @@ handledis(int fd, void *arg)
 }
 
 void
-handleptr(int fd, void *arg)
+handleptr(int fd, void *arg, int port)
 {
 	PDP6 *pdp = (PDP6*)arg;
 	nodelay(fd);
@@ -324,12 +325,14 @@ handleptr(int fd, void *arg)
 }
 
 void
-handleptp(int fd, void *arg)
+handleptp(int fd, void *arg, int port)
 {
 	PDP6 *pdp = (PDP6*)arg;
 	nodelay(fd);
 	ptpmount(pdp, fd);
 }
+
+void handleut(int fd, void *arg, int port);
 
 void*
 netthread(void *arg)
@@ -339,6 +342,10 @@ netthread(void *arg)
 //		// 1041 is teletype
 		{ 1642, handleptr },
 		{ 1643, handleptp },
+		{ 1660, handleut },
+		{ 1661, handleut },
+		{ 1662, handleut },
+		{ 1663, handleut },
 		{ 3400, handledis },
 	};
 	serveN(ports, nelem(ports), arg);

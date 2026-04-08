@@ -108,7 +108,7 @@ emu(PDP1 *pdp, Panel *panel)
 }
 
 void
-handlenetcmd(int fd, void *arg)
+handlenetcmd(int fd, void *arg, int port)
 {
 	PDP1 *pdp = (PDP1*)arg;
 	char line[1024];
@@ -144,21 +144,14 @@ connectdpy(PDP1 *pdp, DispCon *d, int fd)
 }
 
 void
-handledpy(int fd, void *arg)
+handledpy(int fd, void *arg, int port)
 {
 	PDP1 *pdp = (PDP1*)arg;
-	connectdpy(pdp, &pdp->dpy[0], fd);
+	connectdpy(pdp, &pdp->dpy[port&1], fd);
 }
 
 void
-handledpy2(int fd, void *arg)
-{
-	PDP1 *pdp = (PDP1*)arg;
-	connectdpy(pdp, &pdp->dpy[1], fd);
-}
-
-void
-handleptr(int fd, void *arg)
+handleptr(int fd, void *arg, int port)
 {
 	PDP1 *pdp = (PDP1*)arg;
 	close(pdp->r_fd);
@@ -167,7 +160,7 @@ handleptr(int fd, void *arg)
 }
 
 void
-handleptp(int fd, void *arg)
+handleptp(int fd, void *arg, int port)
 {
 	PDP1 *pdp = (PDP1*)arg;
 	close(pdp->p_fd);
@@ -183,8 +176,9 @@ netthread(void *arg)
 		// 1041 is typewriter
 		{ 1042, handleptr },
 		{ 1043, handleptp },
+		// even/odd for display 1 and 2
 		{ 3400, handledpy },
-		{ 3401, handledpy2 },
+		{ 3401, handledpy },
 	};
 	serveN(ports, nelem(ports), arg);
 	return nil;

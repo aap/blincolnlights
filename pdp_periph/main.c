@@ -58,6 +58,7 @@ int emuport = 1640;
 int typport = 1641;
 int ptrport = 1642;
 int ptpport = 1643;
+int utport = 1660;
 
 int clifd[2];
 
@@ -625,6 +626,7 @@ initGL(void)
 	glGenBuffers(1, &immVbo);
 	initDisplayGL();
 	initReaderGL();
+	initDecTapeGL();
 
 	GLint vs = compileshader(GL_VERTEX_SHADER, color_vs_src);
 	GLint fs = compileshader(GL_FRAGMENT_SHADER, color_fs_src);
@@ -1115,23 +1117,35 @@ main(int argc, char *argv[])
 	Reader *reader = addReader(15,  45, 480, 80, 0);
 */
 	Display *disp = addDisplay(595, 87, 324, 310, 1);
-	typ = addTypewriter(11, 378, 486, 236, 0);
+	typ = addTypewriter(10, 378, 486, 236, 0);
 	Punch *punch = addPunch(514, 482, 472, 60, 0);
 	Reader *reader = addReader(514, 554, 472, 60, 0);
-	DecTape *ut1 = addDecTape(11, 50, 486, 120, 0);
-	DecTape *ut2 = addDecTape(11, 200, 486, 120, 0);
+	DecTape *ut1 = addDecTape(10, 50, 240, 120, 0);
+	DecTape *ut2 = addDecTape(10, 200, 240, 120, 0);
+	DecTape *ut3 = addDecTape(256, 50, 240, 120, 0);
+	DecTape *ut4 = addDecTape(256, 200, 240, 120, 0);
 	selected = layout->comp;
 	winW = layout->w;
 	winH = layout->h;
 	SDL_SetWindowSize(window, winW, winH);
 	setlayout();
 
-	disp->fd = dial(host, port);
+	disp->port = port;
+	typ->port = typport;
+	punch->port = ptpport;
+	reader->port = ptrport;
+	ut1->port = utport+0;
+	ut2->port = utport+1;
+	ut3->port = utport+2;
+	ut4->port = utport+3;
+
+
+	disp->fd = dial(host, disp->port);
 	if(disp->fd < 0) {
 		fprintf(stderr, "couldn't connect to display %s:%d\n", host, port);
 		return 1;
 	}
-	typ->fd = dial(host, typport);
+	typ->fd = dial(host, typ->port);
 	if(typ->fd < 0) {
 		fprintf(stderr, "couldn't connect to typewriter %s:%d\n", host, typport);
 		return 1;
@@ -1143,6 +1157,10 @@ main(int argc, char *argv[])
 	initDisplay(disp);
 	initPunch(punch);
 	initReader(reader);
+	initDecTape(ut1);
+	initDecTape(ut2);
+	initDecTape(ut3);
+	initDecTape(ut4);
 
 	pthread_create(&th, nil, pollthread, nil);
 

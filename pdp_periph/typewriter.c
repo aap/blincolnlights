@@ -30,6 +30,7 @@ enum {
 typedef struct {
 	Component c;
 	int fd;
+	int port;
 
 	char typ_lines[NUMLINES][LINELEN];
 	int nlines;
