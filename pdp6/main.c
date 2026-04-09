@@ -220,8 +220,8 @@ cli(PDP6 *pdp, FD *fd)
 
 	n = read(fd->fd, line, sizeof(line));
 	if(n <= 0) {
-		printf("\n");
-		exit(0);
+		closefd(fd);
+		return;
 	}
 	if(n > 0 && n < sizeof(line))  {
 		line[n] = '\0';

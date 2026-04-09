@@ -1,3 +1,4 @@
+#define _GNU_SOURCE	// asprintf
 #include "common.h"
 #include "pdp6.h"
 
