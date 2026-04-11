@@ -176,7 +176,7 @@ uxmount(Ux555 *ux, const char *path)
 	lseek(ux->fd, 0, SEEK_SET);
 	read(ux->fd, ux->buf, ux->size);
 	ux->written = 0;
-	ux->pos = 100;
+	ux->pos = 5000;
 	ux->flapping = ux->pos >= ux->size;	// hopefully always true
 	ux->tp = 0;
 	ux->go = 0;
@@ -194,7 +194,7 @@ uxmove(Ux555 *ux)
 			int dt = ux->startstoptimer - ux->timer;
 			int dist = (ux->targetpos - ux->pos);
 			int nmoves = (dt+MOVEDLY)/MOVEDLY;
-			ux->pos = dist / nmoves;
+			ux->pos += dist / nmoves;
 		} else if (ux->go) {
 			if(ux->rev) {
 				if(--ux->pos < 0)
@@ -220,19 +220,21 @@ uxsetmotion(Ux555 *ux, int go, int rev)
 		if(!ux->go) {
 			// start transport
 			ux->startstoptimer = simtime + STARTDLY;
-			ux->targetpos = ux->pos + rev ? -STARTDIST : STARTDIST;
+			ux->targetpos = ux->pos + (rev ? -STARTDIST : STARTDIST);
 		} else {
 			// stop transport
 			ux->startstoptimer = simtime + STOPDLY;
-			ux->targetpos = ux->pos + ux->rev ? -STOPDIST : STOPDIST;
+			ux->targetpos = ux->pos + (ux->rev ? -STOPDIST : STOPDIST);
 		}
 		ux->go = go;
 	} else if(ux->go && ux->rev != rev) {
 		// turn around transport
 		ux->startstoptimer = simtime + TURNDLY;
-		ux->targetpos = ux->pos + rev ? -TURNDIST : TURNDIST;
+		ux->targetpos = ux->pos + (rev ? -TURNDIST : TURNDIST);
 	}
 	ux->rev = rev;
+	if(ux->targetpos < 0) ux->targetpos = 0;
+	if(ux->targetpos >= ux->size) ux->targetpos = ux->size-1;
 	if(update)
 		sendstatus(ux);
 }

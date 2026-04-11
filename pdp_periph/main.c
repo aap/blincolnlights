@@ -1121,8 +1121,8 @@ main(int argc, char *argv[])
 	Punch *punch = addPunch(514, 482, 472, 60, 0);
 	Reader *reader = addReader(514, 554, 472, 60, 0);
 	DecTape *ut1 = addDecTape(10, 50, 240, 120, 0);
-	DecTape *ut2 = addDecTape(10, 200, 240, 120, 0);
-	DecTape *ut3 = addDecTape(256, 50, 240, 120, 0);
+	DecTape *ut2 = addDecTape(256, 50, 240, 120, 0);
+	DecTape *ut3 = addDecTape(10, 200, 240, 120, 0);
 	DecTape *ut4 = addDecTape(256, 200, 240, 120, 0);
 	selected = layout->comp;
 	winW = layout->w;
