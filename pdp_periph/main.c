@@ -48,6 +48,7 @@ char *argv0;
 
 SDL_Window *window;
 int fullscreen;
+int fullscreenDisplay;
 int realW, realH;	// non-fullscreen, what a pain to keep track of
 int winW, winH;
 int dbgflag;
@@ -77,6 +78,7 @@ typedef struct {
 	float w, h;
 	int iscircle;
 } Region;
+Region winRegion;
 
 typedef struct {
 	float x, y;
@@ -882,11 +884,17 @@ keydown(SDL_Keysym keysym)
 		write(clifd[1], "p", 1);
 		break;
 
+	case SDL_SCANCODE_F12:
+		fullscreenDisplay ^= 1;
+		break;
+
 	default:
 		// only catch what textinput doesn't
 		// this is where ctrl & shift logic happens
 		if(ctrl && keysym.sym < 256) {
 			int c = keysym.sym;
+			if(c == '=' || c == '-')
+				break;
 			if(islower(c)) c = toupper(c);
 			if(shift) c ^= 020;
 			if(ctrl) c &= 037;
@@ -1008,6 +1016,8 @@ resize(int w, int h)
 		realW = winW;
 		realH = winH;
 	}
+	winRegion.w = winW;
+	winRegion.h = winH;
 }
 
 void
@@ -1169,6 +1179,11 @@ main(int argc, char *argv[])
 		mountTape(lasttape);
 	}
 
+	winRegion.x = 0;
+	winRegion.y = 0;
+	winRegion.w = winW;
+	winRegion.h = winH;
+	winRegion.iscircle = 0;
 	running = 1;
 	int cursortimer = 0;
 	while(running) {
@@ -1252,7 +1267,7 @@ main(int argc, char *argv[])
 			clearState();
 			resetViewport();
 			glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			glClear(GL_COLOR_BUFFER_BIT);
 
 			col = layoutmode ? colA : layout->bgcol;
 			drawRectangle(0, 0, drawW, drawH);

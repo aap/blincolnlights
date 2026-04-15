@@ -1,7 +1,7 @@
 #ifdef UNITY_BUILD
 
-extern unsigned char dectape_cap_circle_raw[];
-extern unsigned char dectape_reel_raw[];
+extern unsigned char dectape_cap_circle[];
+extern unsigned char dectape_reel[];
 
 typedef struct {
 	Component c;
@@ -69,13 +69,13 @@ initDecTapeGL(void)
 	glGenTextures(1, &cap_tex);
 	glBindTexture(GL_TEXTURE_2D, cap_tex);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0,
-		GL_RGBA, GL_UNSIGNED_BYTE, dectape_cap_circle_raw);
+		GL_RGBA, GL_UNSIGNED_BYTE, dectape_cap_circle);
 	texDefaults();
 
 	glGenTextures(1, &reel_tex);
 	glBindTexture(GL_TEXTURE_2D, reel_tex);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0,
-		GL_RGBA, GL_UNSIGNED_BYTE, dectape_reel_raw);
+		GL_RGBA, GL_UNSIGNED_BYTE, dectape_reel);
 	texDefaults();
 
 	glBindTexture(GL_TEXTURE_2D, 0);

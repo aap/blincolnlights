@@ -14,8 +14,8 @@ textures.o: textures.c art/dectape_cap_circle.h art/dectape_reel.h
 
 art/dectape_cap_circle.h: art/dectape_cap_circle.png
 	convert $< -depth 8 RGBA:- > art/dectape_cap_circle.raw
-	xxd -i art/dectape_cap_circle.raw > $@
+	xxd -n dectape_cap_circle -i art/dectape_cap_circle.raw > $@
 
 art/dectape_reel.h: art/dectape_reel.png
 	convert $< -depth 8 RGBA:- > art/dectape_reel.raw
-	xxd -i art/dectape_reel.raw > $@
+	xxd -n dectape_reel -i art/dectape_reel.raw > $@

@@ -7,10 +7,17 @@ function fw(w)
 	return oct(l,6) .. ",," .. oct(r,6)
 end
 
---uxmount(1, "t/system.dtr");
-uxmount(1, "t/systemdis.dtr");
-uxmount(2, "t/its138.dtr");
-uxmount(3, "t/music.dtr");
+systape = "t/system.dtr"
+sysdistape = "t/systemdis.dtr"
+itstape = "t/its138.dtr"
+musictape = "t/music.dtr"
+footape = "t/foo.dtr"
+
+--uxmount(1, systape)
+uxmount(1, sysdistape)
+uxmount(2, itstape)
+uxmount(3, musictape)
+uxmount(4, footape)
 
 
 -- MACDMP RIM loader

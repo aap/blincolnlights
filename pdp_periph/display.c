@@ -26,7 +26,7 @@ typedef struct {
 	int nnewpoints;
 	Point points[1024*1024];
 	int npoints;
-	float pverts[4*10000];
+	float pverts[4*30000];
 
 	GLuint pvbo;
 	GLuint whiteTex, yellowTex[2];
@@ -203,7 +203,7 @@ drawDisplayUpdate(Display *d)
 
 	int i;
 	for(i = 0; i < d->npoints; i++) {
-		if(i >= nelem(d->pverts))
+		if(i*4 >= nelem(d->pverts))
 			break;
 		d->pverts[i*4 + 0] = d->points[i].x;
 		d->pverts[i*4 + 1] = d->points[i].y;
@@ -243,15 +243,21 @@ void
 drawDisplay(Display *d)
 {
 	Component *c = &d->c;
-	setColor(0,0,0,255);
-	Circle cr = getCircle(&c->r);
+	if(fullscreenDisplay) {
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		setSquareRegion(&winRegion);
+	} else {
+		setColor(0,0,0,255);
+		Circle cr = getCircle(&c->r);
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	drawCircle(cr.x, cr.y, cr.r);
-	glDisable(GL_BLEND);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		drawCircle(cr.x, cr.y, cr.r);
+		glDisable(GL_BLEND);
 
-	setSquareRegion(&c->r);
+		setSquareRegion(&c->r);
+	}
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, d->whiteTex);
@@ -400,7 +406,7 @@ updatepen(Display *d)
 	cmd = 0xFF<<24;
 	cmd |= pendown << 20;
 
-	Region sr = getSquareRegion(&d->c.r);
+	Region sr = getSquareRegion(fullscreenDisplay ? &winRegion : &d->c.r);
 	int px = (penx-sr.x)/sr.w * 1024;
 	int py = (peny-sr.y)/sr.h * 1024;
 

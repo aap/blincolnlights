@@ -286,9 +286,9 @@ updatepanel(void)
 	setnlights(panel->lights3, ir_l, 18, 0400000);
 	setnlights(panel->lights4, pc_l, 18, 0400000);
 
-	misc_l[0].state = !!(panel->lights5 & L5_PI_ON);
+	misc_l[0].state = !!(panel->lights5 & L5_RUN);
 	misc_l[1].state = !!(panel->lights5 & L5_MC_STOP);
-	misc_l[2].state = !!(panel->lights5 & L5_RUN);
+	misc_l[2].state = !!(panel->lights5 & L5_PI_ON);
 	misc_l[3].state = !!(panel->lights5 & L5_REPEAT);
 	misc_l[4].state = !!(panel->lights5 & L5_ADDR_STOP);
 	misc_l[5].state = !!(panel->lights5 & L5_POWER);

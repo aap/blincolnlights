@@ -229,16 +229,11 @@ attachseg(const char *name, size_t sz)
 	void *p;
 
 	fd = open(name, O_RDWR);
-	if(fd == -1) {
-		fprintf(stderr, "couldn't open file %s\n", name);
-		return nil;
-	}
+	if(fd == -1)
+		return createseg(name, sz);
 	p = mmap(NULL, sz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
-	if(p == MAP_FAILED) {
-		fprintf(stderr, "couldn't mmap file\n");
-		return nil;
-	}
-
+	if(p == MAP_FAILED)
+		return createseg(name, sz);
 	return p;
 }
 
