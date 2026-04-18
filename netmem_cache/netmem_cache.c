@@ -1,14 +1,8 @@
 // lol
-//#include "/u/aap/src/pdp6/emu/util.c"
-#include "util.c"
+#include "../common.c"
 
 #include <stdlib.h>
 #include <poll.h>
-
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
-typedef unsigned long long u64;
 
 enum
 {
@@ -254,7 +248,7 @@ netmem(int fd)
 }
 
 void
-handlecon(int confd, void *arg)
+handlecon(int confd, void *arg, int port)
 {
 	memfd = confd;
 printf("connected to pdp-6 %d\n", memfd);
@@ -275,7 +269,12 @@ discon:
 int
 main()
 {
-	serve(20006, handlecon, NULL);
+	static struct PortHandler port20006 = {
+		.port = 20006,
+		.handle = handlecon
+	} ;
+
+        serveN(&port20006, 1, NULL);
 
 	return 0;
 }

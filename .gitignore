@@ -3,6 +3,7 @@
 *.raw
 coremem
 out.ptp
+/netmem_cache/netmem_cache
 /panel_b18/panel_b18
 /panel_b18/panel_b18
 /panel_pidp1/panel_pidp1
