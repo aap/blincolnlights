@@ -1,0 +1,29 @@
+#!/bin/sh
+
+DIR="$PWD"
+
+trap cleanup EXIT INT QUIT
+
+launch() {
+    cd "$1"
+    "./$2" > "$DIR/$2.log" 2>&1 &
+    eval "$2_pid=$!"
+    PIDS="$PIDS $!"
+    echo "Started $2."
+    sleep 1
+    cd "$DIR"
+}
+
+cleanup() {
+    echo "Stopping."
+    kill $PIDS 2> /dev/null
+    sleep 1
+    kill -9 $PIDS 2> /dev/null
+}
+
+launch "vpanel_pdp6" "panel_pdp6"
+launch "pdp6" "pdp6"
+launch "pdp_periph" "pdp_periph"
+launch "netmem_cache" "netmem_cache"
+
+wait "$pdp_periph_pid"
