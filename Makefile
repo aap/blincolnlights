@@ -9,3 +9,4 @@ all:
 	(cd vpanel_b18; make)
 	(cd vpanel_pdp1; make)
 	(cd vpanel_whirlwind; make)
+	(cd netmem_cache; make netmem_cache)
