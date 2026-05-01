@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <poll.h>
 
+static const char *host = "localhost";
+
 enum
 {
 	WRRQ = 1,
@@ -252,7 +254,7 @@ handlecon(int confd, void *arg, int port)
 {
 	memfd = confd;
 printf("connected to pdp-6 %d\n", memfd);
-	int fd = dial("maya", 10006);
+	int fd = dial(host, 10006);
 	if(fd < 0)
 		goto discon;
 printf("connected fd %d\n", fd);
@@ -267,12 +269,15 @@ discon:
 }
 
 int
-main()
+main(int argc, char **argv)
 {
 	static struct PortHandler port20006 = {
 		.port = 20006,
 		.handle = handlecon
 	} ;
+
+	if (argc > 1)
+		host = argv[1];
 
         serveN(&port20006, 1, NULL);
 

@@ -352,15 +352,13 @@ netthread(void *arg)
         return nil;
 }
 
-/*
 char *argv0;
 void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-h host] [-p port]\n", argv0);
+	fprintf(stderr, "usage: %s [-m host] [-p port]\n", argv0);
 	exit(1);
 }
-*/
 
 static void
 cleanup(void *arg)
@@ -383,23 +381,19 @@ main(int argc, char *argv[])
 	Panel *panel;
 	PDP6 pdp6, *pdp = &pdp6;
 
-/*
-	const char *host;
-	int port;
+	const char *mhost = "localhost";
+	int mport = 20006;
 
-	host = "localhost";
-	port = 3400;
 	ARGBEGIN {
-	case 'h':
-		host = EARGF(usage());
+	case 'm':
+		mhost = EARGF(usage());
 		break;
 	case 'p':
-		port = atoi(EARGF(usage()));
+		mport = atoi(EARGF(usage()));
 		break;
 	default:
 		usage();
 	} ARGEND;
-*/
 
 	panel = getpanel();
 	if(panel == nil) {
@@ -448,13 +442,12 @@ main(int argc, char *argv[])
 
 
 
-//	pdp->netmem_fd.fd = dial("maya", 10006);
-/*
-	pdp->netmem_fd.fd = dial("maya", 20006);
+	pdp->netmem_fd.fd = dial(mhost, mport);
 	if(pdp->netmem_fd.fd >= 0)
 		printf("netmem connected\n");
+	else
+		printf("netmem not connected\n");
 	waitfd(&pdp->netmem_fd);
-*/
 
 void initlua(PDP6 *pdp);
         initlua(pdp);
