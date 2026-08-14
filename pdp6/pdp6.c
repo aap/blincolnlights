@@ -292,12 +292,8 @@ reloc(PDP6 *pdp)
 	if(pdp->ex_user && !pdp->ex_pi_sync && MA >= 020 && !pdp->ex_ill_op) {
 		pdp->rla = (MA + pdp->rlr) & RT;
 		DLY(100);
-		if((MA & 0776000) > pdp->pr) {
-			cpa_set_illeg_op(pdp);
-			DLY(100);
-			pdp->state = ST7;
+		if((MA & 0776000) > pdp->pr)
 			return 1;
-		}
 	} else
 		pdp->rla = MA;
 	return 0;
@@ -308,7 +304,13 @@ mc_rq(PDP6 *pdp, int ret)
 {
 	pdp->state = ret;
 	pdp->mc_stop = pdp->key_mem_stop || pdp->sw_addr_stop && MA == pdp->mas;
-	return reloc(pdp);
+	if(reloc(pdp)) {
+		cpa_set_illeg_op(pdp);
+		DLY(100);
+		pdp->state = ST7;
+		return 1;
+	}
+	return 0;
 }
 
 static int
@@ -1095,6 +1097,7 @@ decode(PDP6 *pdp)
 				pdp->code = iotcodetab[pdp->estate];
 			}
 		} else if(pdp->code & CODE_JRST) {
+			// TODO? KA10 allows this with CPA IOT USER, 6 too?
 			if(pdp->ex_user && (IR&(H9|H10)))
 				pdp->code = codetab[0];
 		} else if(pdp->code & CODE_CHAR) {
@@ -1292,6 +1295,7 @@ cycle(PDP6 *pdp)
 			key_go(pdp);
 		break;
 
+		// --------------------
 		MEM_RET(KEY_RDWR_RET, key_rd_wr);
 		pdp->ex_ill_op = 0;
 		P(KEY_RDWR_RET);
