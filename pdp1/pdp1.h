@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "netsvc.h"
 
 typedef u32 Word;
 typedef u16 Addr;
@@ -16,7 +17,7 @@ void updatelights(PDP1 *pdp, Panel *panel);
 
 struct DispCon
 {
-	FD fd;
+	NetSvc *svc;		/* N clients, see netsvc.c */
 	u64 last;
 	u32 cmdbuf[128];
 	u32 ncmds;
@@ -172,6 +173,12 @@ struct PDP1
 	// spacewar controllers
 	int spcwar1;
 	int spcwar2;
+
+	// Debug state, and it lives at the END of this struct on purpose:
+	// the out-of-tree shm patch memcpy's PDP1 into /dev/shm/pidp1 and
+	// the Python tools read it by hardcoded byte offset (core[] at 40,
+	// ta at 262184).  Never insert a field before core[].
+	void *dbg;
 };
 
 #define IR pdp->ir
@@ -230,6 +237,15 @@ void agedisplay(PDP1 *pdp, int i);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
 char *handlecmd(PDP1 *pdp, char *line);
+/* handlecmd's out-of-band result, for callers that have to frame a reply */
+extern int cmdfailed, cmdunknown;
+
+/* Would the next cycle() begin a new instruction?  Not INST_DONE, which
+ * asks whether the current one is finishing: we want the gap between
+ * instructions, so break and high-speed-channel cycles don't count and we
+ * never stop in the middle of a sequence break. */
+int atfetch(PDP1 *pdp);
+int instdone(PDP1 *pdp);
 
 void typtelnet(int port, int fd);
 
@@ -237,3 +253,5 @@ void initaudio(void);
 void stopaudio(void);
 void svc_audio(PDP1 *pdp);
 extern int doaudio;
+void dpypen(PDP1 *pdp, u32 cmd);
+int dpyactive(DispCon *d);

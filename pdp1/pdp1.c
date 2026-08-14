@@ -1,5 +1,6 @@
 #include "common.h"
 #include "pdp1.h"
+#include "dbg.h"
 #include <unistd.h>
 #include <fcntl.h>
 
@@ -99,14 +100,34 @@ enum {
 static void
 readmem(PDP1 *pdp)
 {
-	MB |= pdp->core[(pdp->ema|MA)%MAXMEM];
-	pdp->core[(pdp->ema|MA)%MAXMEM] = 0;
+	Addr a = (pdp->ema|MA)%MAXMEM;
+	MB |= pdp->core[a];
+	if(dbg_anywp) dbg_readmem(pdp, a, pdp->core[a]);
+	pdp->core[a] = 0;
 }
 
 static void
 writemem(PDP1 *pdp)
 {
-	pdp->core[(pdp->ema|MA)%MAXMEM] = MB;
+	Addr a = (pdp->ema|MA)%MAXMEM;
+	if(dbg_anywp) dbg_writemem(pdp, a, MB);
+	pdp->core[a] = MB;
+}
+
+/* The debug service's view of the state machine.  cycle() picks the next
+ * cycle type from cyc/df1/bc/hsc; a cycle0 is the fetch, so this is the
+ * gap between instructions.  cychack means a cycle is being re-entered
+ * past TP0, which is not a boundary. */
+int
+atfetch(PDP1 *pdp)
+{
+	return !pdp->cyc && !pdp->bc && !pdp->hsc && pdp->cychack == 0;
+}
+
+int
+instdone(PDP1 *pdp)
+{
+	return INST_DONE;
 }
 
 static void mop2379(PDP1 *pdp) {
@@ -206,6 +227,24 @@ pwrclr(PDP1 *pdp)
 	case 4: pdp->cyc = 1; pdp->bc = 2; break;
 	case 5: pdp->cyc = 1; pdp->bc = 3; break;
 	// 6-9: cyc0
+	}
+
+	// -t wants a machine that behaves the same way twice. a real one
+	// comes up with its flip-flops in whatever state they please, which
+	// is fine for a human at a panel and useless for a test suite.
+	if(testmode) {
+		IR = PC = MA = MB = AC = IO = 0;
+		pdp->cyc = pdp->df1 = pdp->df2 = pdp->bc = pdp->hsc = 0;
+		pdp->ov1 = pdp->ov2 = 0;
+		pdp->rim = pdp->sbm = 0;
+		pdp->ioc = pdp->ihs = pdp->ios = pdp->ioh = 0;
+		pdp->pf = 0;
+		pdp->b1 = pdp->b2 = pdp->b3 = pdp->b4 = 0;
+		pdp->sbs_seq = 0;
+		pdp->hscn = 0;
+		pdp->emc = pdp->exd = 0;
+		pdp->ema = pdp->epc = pdp->eta = 0;
+		pdp->cychack = 0;
 	}
 }
 
@@ -610,6 +649,10 @@ divide(PDP1 *pdp)
 }
 
 static int
+/* DEC numbers program flags and sense switches from the *left*: flag N is
+ * bit 0o40>>(N-1), so flag 1 is 040 and flag 6 is 001 -- not 1<<N.  Every
+ * `szs`/`szf` test written from the obvious assumption is off by a mirror.
+ * `n == 7` means "all of them". */
 decflg(int n)
 {
 	switch(n&7) {
@@ -1710,14 +1753,17 @@ req(PDP1 *pdp, int chan)
 		pdp->b2 = 1;
 }
 
+int
+dpyactive(DispCon *d)
+{
+	return netsvc_nconn(d->svc) > 0;
+}
+
 void
 flushdpy(DispCon *d)
 {
-	int sz = d->ncmds*sizeof(d->cmdbuf[0]);
-	int n = write(d->fd.fd, d->cmdbuf, sz);
+	netsvc_broadcast(d->svc, d->cmdbuf, d->ncmds*sizeof(d->cmdbuf[0]));
 	d->ncmds = 0;
-	if(n < sz)
-		closefd(&d->fd);
 }
 
 void
@@ -1733,7 +1779,7 @@ void
 agedisplay(PDP1 *pdp, int i)
 {
 	DispCon *d = &pdp->dpy[i];
-	if(d->fd.fd < 0)
+	if(!dpyactive(d))
 		return;
 	int ival = d->agetime;
 	assert(d->last <= pdp->simtime);
@@ -1770,7 +1816,7 @@ display(PDP1 *pdp, int xoff, int yoff, int i)
 	agedisplay(pdp, i);
 	// reset age interval for every point shown
 	pdp->dpy[i].agetime = 50*1000;
-	if(pdp->dpy[i].fd.fd < 0)
+	if(!dpyactive(&pdp->dpy[i]))
 		return;
 	if(pdp->pendown) {
 		int dx = pdp->penx - x;
@@ -1782,7 +1828,7 @@ display(PDP1 *pdp, int xoff, int yoff, int i)
 	int in = pdp->dint;
 	// checking fd's is a bit of a hack of course.
 	// this is really a hardware configuration
-	int twoscreens = pdp->dpy[0].fd.fd >= 0 && pdp->dpy[1].fd.fd >= 0;
+	int twoscreens = dpyactive(&pdp->dpy[0]) && dpyactive(&pdp->dpy[1]);
 	if(twoscreens) {
 		if(!!(pdp->dint&4) != i)
 			return;
@@ -1796,23 +1842,14 @@ display(PDP1 *pdp, int xoff, int yoff, int i)
 	dpycmd(pdp, i, cmd);
 }
 
+/* light pen position, from the display program.  Only the main display
+ * has a pen; a second client on 3400 just gets to move it too. */
 void
-checkpen(PDP1 *pdp, int i)
+dpypen(PDP1 *pdp, u32 cmd)
 {
-	DispCon *d = &pdp->dpy[i];
-	if(d->fd.ready) {
-		u32 cmd;
-		int n = read(d->fd.fd, &cmd, sizeof(cmd));
-		if(n <= 0)
-			return;
-		// only update pen for main display
-		if(i == 0) {
-			pdp->peny = cmd & 01777;
-			pdp->penx = (cmd>>10) & 01777;
-			pdp->pendown = (cmd>>20) & 1;
-		}
-		waitfd(&d->fd);
-	}
+	pdp->peny = cmd & 01777;
+	pdp->penx = (cmd>>10) & 01777;
+	pdp->pendown = (cmd>>20) & 1;
 }
 
 void
@@ -1951,8 +1988,6 @@ if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 		disp_ddp(pdp);
 	}
 #endif
-	checkpen(pdp, 0);
-	checkpen(pdp, 1);	// ignored
 }
 
 int
@@ -2022,6 +2057,8 @@ cli(PDP1 *pdp)
 	}
 }
 
+int cmdfailed, cmdunknown;
+
 char*
 handlecmd(PDP1 *pdp, char *line)
 {
@@ -2033,31 +2070,41 @@ handlecmd(PDP1 *pdp, char *line)
 	if(p = strchr(line, '\n'), p) *p = '\0';
 
 	char **args = split(line, &n);
+	char *argmem = args[0];
 
+	cmdfailed = 0;
+	cmdunknown = 0;
 	strcpy(resp, "ok");
 	if(n > 0) {
 		// reader
-		if(strcmp(args[0], "r") == 0) {
+		if(strcmp(args[0], "r") == 0 ||
+		   strcmp(args[0], "reader") == 0) {
 			close(pdp->r_fd);
 			pdp->r_fd = -1;
 			if(args[1]) {
 				pdp->r_fd = open(args[1], O_RDONLY);
-				if(pdp->r_fd < 0)
+				if(pdp->r_fd < 0) {
+					cmdfailed = 1;
 					sprintf(resp, "couldn't open %s", args[1]);
+				}
 			}
 		}
 		// punch
-		else if(strcmp(args[0], "p") == 0) {
+		else if(strcmp(args[0], "p") == 0 ||
+			strcmp(args[0], "punch") == 0) {
 			close(pdp->p_fd);
 			pdp->p_fd = -1;
 			if(args[1]) {
 				pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC, 0644);
-				if(pdp->p_fd < 0)
+				if(pdp->p_fd < 0) {
+					cmdfailed = 1;
 					sprintf(resp, "couldn't open %s", args[1]);
+				}
 			}
 		}
 		// load
-		else if(strcmp(args[0], "l") == 0) {
+		else if(strcmp(args[0], "l") == 0 ||
+			strcmp(args[0], "load") == 0) {
 			static char *rimfile = nil;
 			int fd;
 			if(args[1]) {
@@ -2067,16 +2114,22 @@ handlecmd(PDP1 *pdp, char *line)
 			if(rimfile) {
 				fd = open(rimfile, O_RDONLY);
 				if(fd < 0) {
+					cmdfailed = 1;
 					sprintf(resp, "couldn't open %s", rimfile);
 				} else {
 					readrim(pdp, fd);
 					close(fd);
 				}
-			} else
+			} else {
+				cmdfailed = 1;
 				sprintf(resp, "no filename");
+			}
 		}
-		// display
-		else if(strcmp(args[0], "d") == 0) {
+		// display.  On the network 'd' is deposit (see dbg.c), so
+		// the display connect is 'dpy'; 'd' still works from stdin.
+		else if(strcmp(args[0], "dpy") == 0 ||
+			strcmp(args[0], "display") == 0 ||
+			strcmp(args[0], "d") == 0) {
 			static const char *host = "localhost";
 			static int port = 3400;
 			if(args[1])
@@ -2085,17 +2138,12 @@ handlecmd(PDP1 *pdp, char *line)
 				port = atoi(args[2]);
 
 			int fd = dial(host, port);
-			if(fd < 0)
+			if(fd < 0) {
+				cmdfailed = 1;
 				strcpy(resp, "can't open display");
-			else {
-				nodelay(fd);
-				if(pdp->dpy[0].fd.fd >= 0)
-					closefd(&pdp->dpy[0].fd);
-				pdp->dpy[0].last = pdp->simtime;
-				pdp->dpy[0].fd.id = -1;
-				pdp->dpy[0].fd.fd = fd;
-				waitfd(&pdp->dpy[0].fd);
 			}
+			else
+				netsvc_adopt(pdp->dpy[0].svc, fd);
 		}
 		// sequence break system
 		// currently 1 and 16 channel system. maybe 256 one day?
@@ -2160,9 +2208,11 @@ handlecmd(PDP1 *pdp, char *line)
 				doaudio = !doaudio;
 			sprintf(resp, "audio %s", doaudio ? "on" : "off");
 		}
+		else
+			cmdunknown = 1;
 	}
 
-	free(args[0]);
+	free(argmem);
 	free(args);
 
 	return resp;

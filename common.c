@@ -60,6 +60,11 @@ readn(int fd, void *data, int n)
 	return 0;
 }
 
+/* bind to 127.0.0.1 instead of every interface.  Off by default so remote
+ * panels and frontends keep working; DEBUG_PROTOCOL_SPEC §9 argues it should
+ * be the other way round on a machine that ships to hundreds of users. */
+int netlocalonly;
+
 int
 socketlisten(int port)
 {
@@ -78,7 +83,7 @@ socketlisten(int port)
 
 	memset(&server, 0, sizeof(server));
 	server.sin_family = AF_INET;
-	server.sin_addr.s_addr = INADDR_ANY;
+	server.sin_addr.s_addr = htonl(netlocalonly ? INADDR_LOOPBACK : INADDR_ANY);
 	server.sin_port = htons(port);
 	if(bind(fd, (struct sockaddr*)&server, sizeof(server)) < 0) {
 		close(fd);

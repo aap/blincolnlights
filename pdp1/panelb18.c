@@ -1,6 +1,7 @@
 #include "common.h"
 #include "panel_b18.h"
 #include "pdp1.h"
+#include "dbg.h"
 
 void
 updateswitches(PDP1 *pdp, Panel *panel)
@@ -35,6 +36,10 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->examine_sw = !!(sw1 & KEY_EXAM);
 	pdp->deposit_sw = !!(sw1 & KEY_DEP);
 	pdp->readin_sw = !!(sw1 & KEY_READIN);
+
+	/* the debug service sits on top of the panel, at the decoded level,
+	 * so it needs no bit layout and both panels get it from one place */
+	dbgoverride(pdp);
 }
 
 void

@@ -1,5 +1,7 @@
 #include "common.h"
+#include "netsvc.h"
 #include "pdp1.h"
+#include "dbg.h"
 #include "args.h"
 
 #include <time.h>
@@ -79,7 +81,10 @@ emu(PDP1 *pdp, Panel *panel)
 					svc_audio(pdp);
 				else
 					stopaudio();
-				cycle(pdp);
+				if(dbgfetch(pdp))
+					dbgstop(pdp);
+				else
+					cycle(pdp);
 			 } else {
 				stopaudio();
 				updatelights(pdp, panel);
@@ -104,91 +109,82 @@ emu(PDP1 *pdp, Panel *panel)
 		agedisplay(pdp, 0);
 		agedisplay(pdp, 1);
 		cli(pdp);
+		dbgsvc(pdp);
 	}
 }
 
-void
-handlenetcmd(int fd, void *arg, int port)
-{
-	PDP1 *pdp = (PDP1*)arg;
-	char line[1024];
-	int n;
-	while(n = read(fd, line, sizeof(line)), n > 0) {
-//		printf("got %d bytes\n", n);
-		line[n] = 0;
-//		printf("<%s>\n", line);
-		char *r = handlecmd(pdp, line);
-//printf("reply: <%s>\n", r);
-		n = strlen(r);
-		r[n] = '\n';
-		r[n+1] = '\0';
-		write(fd, r, strlen(r));
-	}
-//	printf("closing\n");
-	close(fd);
-}
+static PDP1 *thepdp;
 
-void
-connectdpy(PDP1 *pdp, DispCon *d, int fd)
+/* Displays fan out: a new client joins the picture instead of stealing it.
+ * This used to close the display the second client connected to and then
+ * leak the new fd without installing it. */
+static void
+dpyaccepted(NetConn *c)
 {
-	if(d->fd.fd >= 0)
-		closefd(&d->fd);
-	else {
-		nodelay(fd);
-		d->fd.fd = fd;
-		d->fd.id = -1;
-		waitfd(&d->fd);
-		d->last = pdp->simtime;
+	DispCon *d = &thepdp->dpy[c->svc->port&1];
+
+	if(c->svc->nconn == 1) {
+		d->last = thepdp->simtime;
 		d->agetime = 50*1000;
+		d->ncmds = 0;
 	}
 }
 
-void
-handledpy(int fd, void *arg, int port)
+/* the light pen reports back in 4-byte commands */
+static void
+dpydata(NetConn *c, u8 *buf, int n)
 {
-	PDP1 *pdp = (PDP1*)arg;
-	connectdpy(pdp, &pdp->dpy[port&1], fd);
+	int i;
+
+	if((c->svc->port&1) != 0)
+		return;		/* only the main display has a pen */
+	for(i = 0; i+4 <= n; i += 4)
+		dpypen(thepdp, buf[i] | buf[i+1]<<8 | buf[i+2]<<16 | buf[i+3]<<24);
 }
 
-void
-handleptr(int fd, void *arg, int port)
+/* the reader and punch take the raw fd: they want a blocking read */
+static void
+adoptptr(NetSvc *svc, int fd)
 {
-	PDP1 *pdp = (PDP1*)arg;
-	close(pdp->r_fd);
-	pdp->r_fd = fd;
-	nodelay(pdp->r_fd);
+	close(thepdp->r_fd);
+	thepdp->r_fd = fd;
 }
 
-void
-handleptp(int fd, void *arg, int port)
+static void
+adoptptp(NetSvc *svc, int fd)
 {
-	PDP1 *pdp = (PDP1*)arg;
-	close(pdp->p_fd);
-	pdp->p_fd = fd;
-	nodelay(pdp->p_fd);
+	close(thepdp->p_fd);
+	thepdp->p_fd = fd;
 }
 
-void*
-netthread(void *arg)
+static NetSvc ptrsvc = { .port = 1042, .maxconn = 1, .mode = SVC_RAW, .adopt = adoptptr };
+static NetSvc ptpsvc = { .port = 1043, .maxconn = 1, .mode = SVC_RAW, .adopt = adoptptp };
+static NetSvc dpysvc0 = { .port = 3400, .maxconn = 4, .mode = SVC_RAW,
+	.accepted = dpyaccepted, .data = dpydata };
+static NetSvc dpysvc1 = { .port = 3401, .maxconn = 4, .mode = SVC_RAW,
+	.accepted = dpyaccepted, .data = dpydata };
+
+void
+startnet(PDP1 *pdp)
 {
-	struct PortHandler ports[] = {
-		{ 1040, handlenetcmd },
-		// 1041 is typewriter
-		{ 1042, handleptr },
-		{ 1043, handleptp },
-		// even/odd for display 1 and 2
-		{ 3400, handledpy },
-		{ 3401, handledpy },
-	};
-	serveN(ports, nelem(ports), arg);
-	return nil;
+	thepdp = pdp;
+	dbginit(pdp, 1040);	/* cli + debug, see DEBUG_PROTOCOL_SPEC.md */
+	// 1041 is typewriter
+	netsvc_add(&ptrsvc);
+	netsvc_add(&ptpsvc);
+	// even/odd for display 1 and 2
+	netsvc_add(&dpysvc0);
+	netsvc_add(&dpysvc1);
+	pdp->dpy[0].svc = &dpysvc0;
+	pdp->dpy[1].svc = &dpysvc1;
+	netsvc_start();
 }
 
 char *argv0;
 void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-h host] [-p port]\n", argv0);
+	fprintf(stderr, "usage: %s [-lt] [-h host] [-p port]\n", argv0);
 	exit(1);
 }
 
@@ -253,7 +249,8 @@ static int memsz;
 void
 exitcleanup(void)
 {
-	dumpmem("coremem", memp, memsz);
+	if(!testmode)
+		dumpmem("coremem", memp, memsz);
 	lightsoff(panel);
 }
 
@@ -268,13 +265,22 @@ int
 main(int argc, char *argv[])
 {
 	PDP1 pdp1, *pdp = &pdp1;
-	pthread_t th;
 	const char *host;
 	int port;
 
 	host = "localhost";
 	port = 3400;
 	ARGBEGIN {
+	case 'l':
+		/* listen on loopback only.  the ports carry a command
+		 * language that can open and truncate files. */
+		netlocalonly = 1;
+		break;
+	case 't':
+		/* headless: no coremem load/dump, POWER forced on, no tapes.
+		 * for the conformance suite and anything else unattended */
+		testmode = 1;
+		break;
 	case 'h':
 		host = EARGF(usage());
 		break;
@@ -301,18 +307,16 @@ main(int argc, char *argv[])
 	signal(SIGTERM, sighandler);
 
 	memset(pdp, 0, sizeof(*pdp));
-	readmem("coremem", memp, memsz);
+	if(!testmode)
+		readmem("coremem", memp, memsz);
 
 	startpolling();
 
-	pdp->dpy[0].fd.id = -1;
-	pdp->dpy[0].fd.fd = -1;
-	pdp->dpy[1].fd.id = -1;
-	pdp->dpy[1].fd.fd = -1;
 	pdp->penr = 5;
 
-	pthread_create(&th, NULL, netthread, pdp);
+	startnet(pdp);
 
+	if(!testmode) {
 //	const char *tape = "maindec/maindec1_20.rim";
 //	const char *tape = "tapes/circle.rim";
 //	const char *tape = "tapes/munch.rim";
@@ -323,8 +327,12 @@ main(int argc, char *argv[])
 	pdp->muldiv_sw = 1;
 
 	pdp->r_fd = open(tape, O_RDONLY);
-
 	pdp->p_fd = open("punch.out", O_CREAT|O_WRONLY|O_TRUNC, 0644);
+	} else {
+		pdp->r_fd = -1;
+		pdp->p_fd = -1;
+		pdp->muldiv_sw = 1;
+	}
 
 	pdp->typ_fd.id = -1;
 	int fd[2];

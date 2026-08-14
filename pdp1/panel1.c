@@ -1,6 +1,7 @@
 #include "common.h"
 #include "panel_pidp1.h"
 #include "pdp1.h"
+#include "dbg.h"
 
 void
 updateswitches(PDP1 *pdp, Panel *panel)
@@ -32,6 +33,10 @@ updateswitches(PDP1 *pdp, Panel *panel)
 
 	pdp->spcwar1 = (sw3>>5) & 017;
 	pdp->spcwar2 = (sw3>>9) & 017;
+
+	/* the debug service sits on top of the panel, at the decoded level,
+	 * so it needs no bit layout and both panels get it from one place */
+	dbgoverride(pdp);
 }
 
 void
