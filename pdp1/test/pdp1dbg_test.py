@@ -678,37 +678,59 @@ def panelseg(c):
 # Panel, from panel_pidp1.h: sw0..sw3, lights0..lights9, psw2.
 PANELSZ = 15 * 4
 SW2 = 2                 # SS and the momentary keys
+SW2_SS = 10             # ss = (sw2>>10) & 077
 L_PC = 4                # lights0
-L_FLAGS = 10            # lights6: ir<<13 | ss<<6 | pf
+L_SS = 10               # lights6: ir<<13 | ss<<6 | pf
 KEY_READER = 0o000004
 
 
+def senselamps(get):
+    return (get(L_SS) >> 6) & 0o77
+
+
 @test
-def t_panel_override_lights_the_flags(c):
-    """holding tw or ss lights every program flag as a warning
+def t_panel_override_lights_the_sense_switches(c):
+    """holding tw or ss lights every sense switch lamp as a warning
 
     The program can read TW (lat) and SS (szs), so an override the operator
-    cannot see makes the machine behave inexplicably.  Needs the real
-    /tmp/pdp1_panel segment; the mock has no panel."""
+    cannot see makes the machine behave inexplicably.  The sense switch
+    lamps normally just mirror the switches, so they are free to say it
+    with.  Needs the real /tmp/pdp1_panel segment; the mock has no panel."""
     setup(c)
-    get, _ = panelseg(c)
+    get, put = panelseg(c)
     c.must("panel off force")
+    sw2 = get(SW2)
     try:
+        # a physical panel may legitimately have all six switches up, so
+        # put a known value under them first
+        put(SW2, (sw2 & ~(0o77 << SW2_SS)) | (0o25 << SW2_SS))
         time.sleep(0.2)
-        if get(L_FLAGS) & 0o77 == 0o77:
-            raise Fail("all flags are lit with no override held")
-        for sw, val in (("tw", "123456"), ("ss", "25")):
+        if get(SW2) >> SW2_SS & 0o77 != 0o25:
+            raise Skip("a panel driver owns the segment")
+        if senselamps(get) != 0o25:
+            raise Fail("the lamps do not mirror the sense switches: %02o"
+                       % senselamps(get))
+        c.must("w pf 5")
+        for sw, val in (("tw", "123456"), ("ss", "52")):
             c.must("panel on")
             c.must("sw %s %s" % (sw, val))
             time.sleep(0.2)
-            if get(L_FLAGS) & 0o77 != 0o77:
-                raise Fail("holding %s did not light the program flags: %02o"
-                           % (sw, get(L_FLAGS) & 0o77))
+            if senselamps(get) != 0o77:
+                raise Fail("holding %s did not light the sense switch lamps: %02o"
+                           % (sw, senselamps(get)))
+            # the lamps are borrowed, the machine is not touched
+            if c.kv("s")["pf"] != "05":
+                raise Fail("the warning changed the program flags: pf=%s"
+                           % c.kv("s")["pf"])
             c.must("panel off force")
             time.sleep(0.2)
-            if get(L_FLAGS) & 0o77 == 0o77:
-                raise Fail("flags stayed lit after the %s override was dropped" % sw)
+            if senselamps(get) != 0o25:
+                raise Fail("the lamps did not go back to the switches after "
+                           "the %s override was dropped: %02o"
+                           % (sw, senselamps(get)))
     finally:
+        put(SW2, sw2)
+        c.must("w pf 0")
         c.must("panel off force")
 
 

@@ -27,8 +27,8 @@ warning, and on the PiDP-1 the reader-key unlock), `typtelnet.c` (fan-out),
 
 **The override is two-way at the panel** (added after Oscar tried it, and
 specified in §5 of `DEBUG_PROTOCOL_SPEC.md`): while it holds TW or SS the
-panel lights every program flag, and the otherwise-unused tape reader key
-releases it. Between them they close the hole where the machine is being
+panel lights every sense switch lamp, and the otherwise-unused tape reader
+key releases it. Between them they close the hole where the machine is being
 driven by someone who is not in the room and the operator has no way to see
 it or stop it. The unlock is deliberately not a network command — one that
 could be sent over 1040 would add nothing over `panel off force`.

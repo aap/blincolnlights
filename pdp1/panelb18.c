@@ -65,9 +65,9 @@ updatelights(PDP1 *pdp, Panel *panel)
 	switch(panel->sel1) {
 	case 0: panel->lights0 = AC; break;
 	case 1: panel->lights0 = MA | IR<<12; break;
-	/* all six program flags lit means the debug service is holding TW or
-	 * SS: the switches are not the ones the program reads */
-	case 2: panel->lights0 = (dbgswoverride() ? 077 : pdp->pf)<<6 | pdp->ss; break;
+	/* all six sense switch lamps lit means the debug service is holding
+	 * TW or SS: the switches are not the ones the program reads */
+	case 2: panel->lights0 = pdp->pf<<6 | (dbgswoverride() ? 077 : pdp->ss); break;
 	case 3: panel->lights0 = pdp->ta; break;
 	}
 	switch(panel->sel2) {

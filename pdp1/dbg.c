@@ -869,9 +869,9 @@ dbgoverride(PDP1 *pdp)
 /* Nonzero while the override is holding a switch the running program can
  * read for itself: TW (lat) and SS (szs).  A machine whose sense switches
  * disagree with the ones under the operator's hands is baffling, so the
- * panel lights every program flag while this is true.  The other overrides
- * (TA, SSTEP, SINST, EXTEND, POWER) show up in the lights they drive
- * already, so they do not raise the warning. */
+ * panel lights every sense switch lamp while this is true.  The other
+ * overrides (TA, SSTEP, SINST, EXTEND, POWER) show up in the lights they
+ * drive already, so they do not raise the warning. */
 int
 dbgswoverride(void)
 {
@@ -1001,8 +1001,8 @@ static const char *helptext[] = {
 	"sbs [1|16]  pen [<n>]      options (decimal)",
 	"NB: opcode 0 is not HLT.  Real HLT is 760400; 0 stops as ?illegal.",
 	"NB: sense switch/flag N is bit 040>>(N-1).  Switch 1 is 40, not 1.",
-	"NB: overriding tw or ss lights every program flag on the panel, and",
-	"    the tape reader key releases the override from the panel itself.",
+	"NB: overriding tw or ss lights every sense switch lamp, and the tape",
+	"    reader key releases the override from the panel itself.",
 };
 
 static void

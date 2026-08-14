@@ -358,14 +358,19 @@ for `panel1.c`.
 
 **The override MUST be visible at the panel.** While it holds TW or SS —
 the two switches a running program reads for itself, with `lat` and `szs` —
-the panel lights *every program flag*. Without it a machine whose sense
-switches disagree with the ones under the operator's hands is simply
+the panel lights *every sense switch lamp*. Without it a machine whose
+sense switches disagree with the ones under the operator's hands is simply
 inexplicable. The other overrides (TA, SSTEP, SINST, EXTEND, POWER) already
-show in the lights they drive, so they do not raise the warning; the flags
-themselves are hidden for as long as it is up, which costs nothing while
-somebody else is driving. Only the lamps are borrowed — `pdp->pf` is not
-touched, so `r pf` and the status line still report the machine's real
-flags and no program can tell. Servers without a panel are exempt.
+show in the lights they drive, so they do not raise the warning.
+
+The sense switch lamps are the right ones to borrow because they are the
+only group that carries nothing of its own: they mirror the switches, and
+the switches are right there in front of you. (The program flags were the
+first choice and were wrong — those are machine state you cannot read off
+anything else.) Only the lamps are affected; `pdp->ss` is untouched, so
+`r ss`, `sw ss` and the status line still report what the machine is
+actually using, and a program that reads the switches sees no difference.
+Servers without a panel are exempt.
 
 **The panel MUST be able to take itself back.** On the PiDP-1 the tape
 reader key — which drives nothing on this machine — releases the override
@@ -513,7 +518,7 @@ $ telnet localhost 1040
 against the emulator, **32 pass, 0 fail, 3 skip** against the mock.
 
 Three tests need the real `/tmp/pdp1_panel` segment, so they skip against
-anything that has no panel. `panel_override_lights_the_flags` and
+anything that has no panel. `panel_override_lights_the_sense_switches` and
 `panel_reader_key_unlocks` detect that themselves: they map the segment and
 probe it twice with fresh random PC values, because the file outlives the
 emulator (DEBUG_NOTES §8a) and a single probe against a stale segment can

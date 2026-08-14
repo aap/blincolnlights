@@ -184,9 +184,10 @@ while somebody else drives:
 
 - **The override has to be visible.** TW and SS are readable by the running
   program (`lat`, `szs`), so an invisible override makes the machine
-  inexplicable to the operator. All six program flag lamps light while
-  either is held. The lamps are borrowed, not `pdp->pf` — the machine's real
-  flags are untouched.
+  inexplicable to the operator. All six sense switch lamps light while
+  either is held — they are the one lamp group that carries nothing of its
+  own, since they just mirror switches you can already see. Only the lamps
+  are borrowed; `pdp->ss` is untouched.
 - **The panel has to be able to take itself back.** The tape reader key
   drives nothing on the PiDP-1, so either position of it drops the override
   and everything it holds. That is the real answer to "decide precedence

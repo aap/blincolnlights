@@ -47,7 +47,7 @@ updateswitches(PDP1 *pdp, Panel *panel)
 void
 updatelights(PDP1 *pdp, Panel *panel)
 {
-	int l5, l8, l9, pf;
+	int l5, l8, l9, ss;
 	l5 = 0;
 	if(pdp->run) l5 |= L5_RUN;
 	if(pdp->cyc) l5 |= L5_CYC;
@@ -93,10 +93,10 @@ updatelights(PDP1 *pdp, Panel *panel)
 
 	/* the debug service is holding TW or SS: the switches under the
 	 * operator's hands are not the ones the program is reading.  Light
-	 * every program flag to say so — the flags are the only lamp group
-	 * that is otherwise free to borrow, and losing sight of them while
-	 * someone else drives the switches costs nothing. */
-	pf = dbgswoverride() ? 077 : pdp->pf;
+	 * every sense switch lamp to say so — they normally just mirror the
+	 * switches, which are right there in front of you, so they are the
+	 * one lamp group that carries nothing of its own. */
+	ss = dbgswoverride() ? 077 : pdp->ss;
 
 	panel->lights0 = pdp->epc | PC;
 	panel->lights1 = pdp->ema | MA;
@@ -104,7 +104,7 @@ updatelights(PDP1 *pdp, Panel *panel)
 	panel->lights3 = AC;
 	panel->lights4 = IO;
 	panel->lights5 = l5;
-	panel->lights6 = pdp->ir<<13 | pdp->ss<<6 | pf;
+	panel->lights6 = pdp->ir<<13 | ss<<6 | pdp->pf;
 	panel->lights7 = pdp->rb;
 	panel->lights8 = l8;
 	panel->lights9 = l9;
