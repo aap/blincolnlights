@@ -177,6 +177,24 @@ consistent.
 - `panelb18.c` needs the same treatment — worth factoring the merge into one
   shared function both `updateswitches` implementations call.
 
+*Landed as `dbgoverride()`, called from the end of both `updateswitches`
+implementations, exactly as sketched.* Two things this list did not
+anticipate, both of which only show up once somebody stands at the panel
+while somebody else drives:
+
+- **The override has to be visible.** TW and SS are readable by the running
+  program (`lat`, `szs`), so an invisible override makes the machine
+  inexplicable to the operator. All six program flag lamps light while
+  either is held. The lamps are borrowed, not `pdp->pf` — the machine's real
+  flags are untouched.
+- **The panel has to be able to take itself back.** The tape reader key
+  drives nothing on the PiDP-1, so either position of it drops the override
+  and everything it holds. That is the real answer to "decide precedence
+  explicitly": the override wins while it is armed, and the human wins
+  whenever they want to. It cannot be a network command — anything
+  reachable from 1040 is no escape hatch, since `panel off force` is already
+  there.
+
 ## 4. Low hanging fruit
 
 1. **`main.c:116-124` `handlenetcmd` overruns two buffers.** `line[n] = 0`

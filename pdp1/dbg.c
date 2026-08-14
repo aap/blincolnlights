@@ -141,6 +141,7 @@ struct Dbg
 	Word oncetaval;
 	int panelpower;		/* what the real panel says, before we meddle */
 	int ppower, pkeys;	/* for !panel */
+	int preader;		/* reader key, for the physical unlock edge */
 
 	DbgConn *claimer;
 };
@@ -865,6 +866,58 @@ dbgoverride(PDP1 *pdp)
 		dbg->running = 1;
 }
 
+/* Nonzero while the override is holding a switch the running program can
+ * read for itself: TW (lat) and SS (szs).  A machine whose sense switches
+ * disagree with the ones under the operator's hands is baffling, so the
+ * panel lights every program flag while this is true.  The other overrides
+ * (TA, SSTEP, SINST, EXTEND, POWER) show up in the lights they drive
+ * already, so they do not raise the warning. */
+int
+dbgswoverride(void)
+{
+	if(dbg == nil || !dbg->armed)
+		return 0;
+	return dbg->havetw || dbg->havess;
+}
+
+/* Give the panel back: drop the override and everything it was holding.
+ * This is 'panel off force', and it is what the reader key does. */
+static int
+unlockpanel(void)
+{
+	int had;
+
+	had = dbg->armed || dbg->haveta || dbg->havetw || dbg->havess ||
+		dbg->havepower || dbg->havesstep || dbg->havesinst ||
+		dbg->haveextend;
+	dbg->armed = 0;
+	dbg->haveta = dbg->havetw = dbg->havess = dbg->havepower = 0;
+	dbg->havesstep = dbg->havesinst = dbg->haveextend = 0;
+	return had;
+}
+
+/* The tape reader key has no machine function, so it is the physical way
+ * out: either position releases the override, whoever armed it and whether
+ * or not they are still connected.  It is deliberately not on the network
+ * — a client that could unlock could also 'panel off force'.
+ *
+ * Edge-triggered, so a client may re-arm even while the key is held; this
+ * is an escape hatch, not a lockout.  Note that it releases POWER too, so
+ * if the physical POWER switch is off the machine powers down: the panel
+ * is in charge again and that is what the panel says. */
+void
+dbgreaderkey(PDP1 *pdp, int down)
+{
+	if(dbg == nil)
+		return;
+	if(down && !dbg->preader) {
+		event(EV_ALL, "!panel key=reader");
+		if(unlockpanel())
+			event(EV_ALL, "!panel override=off by=reader");
+	}
+	dbg->preader = down;
+}
+
 /* ---------------------------------------------------------- the commands */
 
 static int
@@ -948,6 +1001,8 @@ static const char *helptext[] = {
 	"sbs [1|16]  pen [<n>]      options (decimal)",
 	"NB: opcode 0 is not HLT.  Real HLT is 760400; 0 stops as ?illegal.",
 	"NB: sense switch/flag N is bit 040>>(N-1).  Switch 1 is 40, not 1.",
+	"NB: overriding tw or ss lights every program flag on the panel, and",
+	"    the tape reader key releases the override from the panel itself.",
 };
 
 static void
@@ -1445,9 +1500,7 @@ docmd(PDP1 *pdp, DbgConn *dc, char *line)
 				"power the machine down.  'panel off force' if you mean it");
 			return;
 		}
-		dbg->armed = 0;
-		dbg->haveta = dbg->havetw = dbg->havess = dbg->havepower = 0;
-		dbg->havesstep = dbg->havesinst = dbg->haveextend = 0;
+		unlockpanel();
 		ok(dc, "panel=off");
 		return;
 	}
@@ -1573,9 +1626,10 @@ dbgclosed(NetConn *nc)
 
 	if(dc == nil)
 		return;
-	/* cancel the pending command, drop temporary breakpoints, give up
-	 * the claim, and release any override bits this connection owned —
-	 * SINST must never be left set by a client that died mid-step */
+	/* cancel the pending command, drop temporary breakpoints and give up
+	 * the claim.  The switch override is machine-wide, not per connection,
+	 * so it deliberately survives: a client that dies holding SINST leaves
+	 * it held, and the way out is 'panel off force' or the reader key. */
 	clearpending(dc);
 	if(dbg->claimer == dc)
 		dbg->claimer = nil;

@@ -38,7 +38,9 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->readin_sw = !!(sw1 & KEY_READIN);
 
 	/* the debug service sits on top of the panel, at the decoded level,
-	 * so it needs no bit layout and both panels get it from one place */
+	 * so it needs no bit layout and both panels get it from one place.
+	 * No physical unlock here: this panel has no key going spare, so the
+	 * way out of an override is 'panel off force' on port 1040. */
 	dbgoverride(pdp);
 }
 
@@ -63,7 +65,9 @@ updatelights(PDP1 *pdp, Panel *panel)
 	switch(panel->sel1) {
 	case 0: panel->lights0 = AC; break;
 	case 1: panel->lights0 = MA | IR<<12; break;
-	case 2: panel->lights0 = pdp->pf<<6 | pdp->ss; break;
+	/* all six program flags lit means the debug service is holding TW or
+	 * SS: the switches are not the ones the program reads */
+	case 2: panel->lights0 = (dbgswoverride() ? 077 : pdp->pf)<<6 | pdp->ss; break;
 	case 3: panel->lights0 = pdp->ta; break;
 	}
 	switch(panel->sel2) {

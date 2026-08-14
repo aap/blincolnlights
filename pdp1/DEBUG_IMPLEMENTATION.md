@@ -14,14 +14,24 @@ fighting it.
 ## Status
 
 Phases 0–4 are **done**; phase 5 is client work in the other two repos and
-has not been started. `pdp1/test/pdp1dbg_test.py` reports 30 passed, 0
-failed, 1 skipped against `pdp1 -t`, and the same against the mock.
+has not been started. `pdp1/test/pdp1dbg_test.py` reports 34 passed, 0
+failed, 1 skipped against `pdp1 -t`, and 32/0/3 against the mock — the two
+extra skips are the panel-segment tests, which no panel-less server can pass.
 
 New: `netsvc.c`/`netsvc.h`, `pdp1/dbg.c`/`dbg.h`. Touched: `main.c` (the two
 hooks, `startnet`, `-t`, `-l`), `pdp1.c` (`atfetch`, the two watchpoint
 lines, `cmdfailed`/`cmdunknown`, display fan-out), `pdp1.h` (`void *dbg` at
-the very end, `DispCon`), both panel files (one line each), `typtelnet.c`
-(fan-out), `common.c` (`netlocalonly`).
+the very end, `DispCon`), both panel files (the override, the program-flag
+warning, and on the PiDP-1 the reader-key unlock), `typtelnet.c` (fan-out),
+`common.c` (`netlocalonly`).
+
+**The override is two-way at the panel** (added after Oscar tried it, and
+specified in §5 of `DEBUG_PROTOCOL_SPEC.md`): while it holds TW or SS the
+panel lights every program flag, and the otherwise-unused tape reader key
+releases it. Between them they close the hole where the machine is being
+driven by someone who is not in the room and the operator has no way to see
+it or stop it. The unlock is deliberately not a network command — one that
+could be sent over 1040 would add nothing over `panel off force`.
 
 Four things came out differently from the plan below, all noted in
 `DEBUG_PROTOCOL_SPEC.md` where they matter:

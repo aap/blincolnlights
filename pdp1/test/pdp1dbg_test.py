@@ -640,6 +640,114 @@ def t_switch_ss_reaches_the_program(c):
         c.must("panel off")
 
 
+def panelseg(c):
+    """Map /tmp/pdp1_panel, but only if this server is really driving it.
+
+    The file outlives the emulator (DEBUG_NOTES §8a), so a stale segment
+    would answer a single probe with whatever the last run left behind.
+    Two probes with fresh values settle it: only a live server follows.
+    """
+    try:
+        import mmap
+        import random
+        import struct
+    except ImportError:
+        raise Skip("no mmap")
+    try:
+        f = open("/tmp/pdp1_panel", "r+b")
+        m = mmap.mmap(f.fileno(), PANELSZ)
+    except (OSError, ValueError):
+        raise Skip("no /tmp/pdp1_panel segment")
+
+    def get(i):
+        return struct.unpack_from("i", m, 4 * i)[0]
+
+    def put(i, v):
+        struct.pack_into("i", m, 4 * i, v)
+
+    c.cmd("stop")
+    for _ in range(2):
+        probe = random.randrange(1, 0o7777)
+        c.must("w pc %o" % probe)
+        time.sleep(0.2)
+        if get(L_PC) != probe:
+            raise Skip("the server is not driving /tmp/pdp1_panel")
+    return get, put
+
+
+# Panel, from panel_pidp1.h: sw0..sw3, lights0..lights9, psw2.
+PANELSZ = 15 * 4
+SW2 = 2                 # SS and the momentary keys
+L_PC = 4                # lights0
+L_FLAGS = 10            # lights6: ir<<13 | ss<<6 | pf
+KEY_READER = 0o000004
+
+
+@test
+def t_panel_override_lights_the_flags(c):
+    """holding tw or ss lights every program flag as a warning
+
+    The program can read TW (lat) and SS (szs), so an override the operator
+    cannot see makes the machine behave inexplicably.  Needs the real
+    /tmp/pdp1_panel segment; the mock has no panel."""
+    setup(c)
+    get, _ = panelseg(c)
+    c.must("panel off force")
+    try:
+        time.sleep(0.2)
+        if get(L_FLAGS) & 0o77 == 0o77:
+            raise Fail("all flags are lit with no override held")
+        for sw, val in (("tw", "123456"), ("ss", "25")):
+            c.must("panel on")
+            c.must("sw %s %s" % (sw, val))
+            time.sleep(0.2)
+            if get(L_FLAGS) & 0o77 != 0o77:
+                raise Fail("holding %s did not light the program flags: %02o"
+                           % (sw, get(L_FLAGS) & 0o77))
+            c.must("panel off force")
+            time.sleep(0.2)
+            if get(L_FLAGS) & 0o77 == 0o77:
+                raise Fail("flags stayed lit after the %s override was dropped" % sw)
+    finally:
+        c.must("panel off force")
+
+
+@test
+def t_panel_reader_key_unlocks(c):
+    """the tape reader key releases the override from the panel itself
+
+    Tier 0's escape hatch: a client that armed the override and went away
+    must not be able to hold the machine, and no network command may be
+    able to do this or it would not be an escape hatch.  Needs the real
+    /tmp/pdp1_panel segment and no panel driver attached."""
+    setup(c)
+    get, put = panelseg(c)
+    c.must("events all")
+    c.must("panel on")
+    c.must("sw tw 123456")
+    c.must("sw sinst 1")
+
+    sw2 = get(SW2)
+    put(SW2, sw2 | KEY_READER)
+    time.sleep(0.05)
+    if not get(SW2) & KEY_READER:
+        put(SW2, sw2)
+        raise Skip("a panel driver owns the segment")
+    time.sleep(0.2)
+    put(SW2, sw2)
+
+    try:
+        c.waitevent("!panel override=off", timeout=2)
+        if c.kv("panel")["panel"] != "off":
+            raise Fail("the reader key did not disarm the override")
+        if c.kv("sw tw")["tw"] != "000000":
+            raise Fail("the reader key left tw held")
+        if c.kv("sw sinst")["sinst"] != "0":
+            raise Fail("the reader key left sinst held")
+    finally:
+        c.must("panel off force")
+
+
 @test
 def t_panel_power_mirror(c):
     """panel off must not strand the machine with POWER off (spec §5)

@@ -356,6 +356,42 @@ avoids by working on decoded fields. The refusal makes the situation visible,
 which was the point. A vpanel-only mirror remains a legitimate local nicety
 for `panel1.c`.
 
+**The override MUST be visible at the panel.** While it holds TW or SS —
+the two switches a running program reads for itself, with `lat` and `szs` —
+the panel lights *every program flag*. Without it a machine whose sense
+switches disagree with the ones under the operator's hands is simply
+inexplicable. The other overrides (TA, SSTEP, SINST, EXTEND, POWER) already
+show in the lights they drive, so they do not raise the warning; the flags
+themselves are hidden for as long as it is up, which costs nothing while
+somebody else is driving. Only the lamps are borrowed — `pdp->pf` is not
+touched, so `r pf` and the status line still report the machine's real
+flags and no program can tell. Servers without a panel are exempt.
+
+**The panel MUST be able to take itself back.** On the PiDP-1 the tape
+reader key — which drives nothing on this machine — releases the override
+in either position: `armed` goes off and every held switch is dropped,
+whoever armed it and whether or not they are still connected. This is the
+one operation that is deliberately *not* on the network: a client that
+could unlock could equally `panel off force`, so an escape hatch reachable
+from 1040 would be no escape hatch at all. It is the answer to a client
+that armed the override and then died — `sw sinst 1` outlives the
+connection that set it, on purpose, and this is how you get out.
+
+The key is edge-triggered, so a client may re-arm even while it is held;
+this is an escape hatch, not a lockout. It releases POWER along with
+everything else, so if the physical POWER switch is off the machine powers
+down — the panel is in charge again and that is what the panel says. It
+emits `!panel key=reader`, and `!panel override=off by=reader` when it
+actually released something. Panels with no key going spare (the B18) do
+not have to provide one; `panel off force` remains the way out there.
+
+One asymmetry to expect when disarming, whichever way you do it: the PiDP-1
+reads its switches continuously, so TA/TW/SS snap back to the physical
+switches on the very next pass, but the B18 *loads* them from one shared
+word on a key press, so whatever the override last set stays there until
+somebody presses LOAD. Disarming always stops the server from driving the
+switches; on a load-style panel it does not by itself restore them.
+
 ### Devices
 
 Long forms of the port-1040 verbs, identical semantics, and the short forms
@@ -378,6 +414,7 @@ Sent to connections per their `events` setting: `none`, `stop` (default:
 !wp addr=000015 old=000005 new=000004 pc=000013
 !panel key=start
 !panel power=0
+!panel override=off by=reader
 ```
 
 `!stop` carries a full status line so no follow-up round trip is needed.
@@ -392,7 +429,9 @@ must poll `s` or block in `wait`.
 `!panel` reports human activity on the *main* panel segment — key edges and
 POWER changes only, never toggle-switch wiggles — and is emitted whether or
 not the override is armed. It exists so an agent can notice that a human has
-walked up to the machine and yield to them.
+walked up to the machine and yield to them. `!panel override=off by=reader`
+is the loudest form of that: the human has taken the switches back with the
+reader key, and a client that was holding TW, SS or SINST no longer is.
 
 **PC after a stop.** `pc` is always the machine's real PC, the one on the
 panel lights. PC is incremented at TP2, *before* the instruction executes, so
@@ -470,10 +509,17 @@ $ telnet localhost 1040
 
 `test/pdp1dbg_test.py` is the executable form of this spec: stdlib-only,
 `--host`/`--port`, works against any implementation. It is the definition of
-"done" for the emulator side. **30 pass, 0 fail, 1 skip** against both the
-emulator and the mock as of this writing; the skip is `panel_power_mirror`,
-which needs a real panel driver and was checked by hand instead (`panel off`
-refuses, `panel off force` powers the machine down).
+"done" for the emulator side. As of this writing: **34 pass, 0 fail, 1 skip**
+against the emulator, **32 pass, 0 fail, 3 skip** against the mock.
+
+Three tests need the real `/tmp/pdp1_panel` segment, so they skip against
+anything that has no panel. `panel_override_lights_the_flags` and
+`panel_reader_key_unlocks` detect that themselves: they map the segment and
+probe it twice with fresh random PC values, because the file outlives the
+emulator (DEBUG_NOTES §8a) and a single probe against a stale segment can
+pass by accident. They also skip, rather than fail, if a live panel driver
+is scanning over their key press. `panel_power_mirror` is still a hand
+check (`panel off` refuses, `panel off force` powers the machine down).
 
 `test/pdp1dbg_mock.py` is a reference server — the protocol over a small
 instruction-level PDP-1 (not a TP-level emulator; a stand-in so the suite is

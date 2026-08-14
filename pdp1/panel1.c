@@ -34,6 +34,11 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->spcwar1 = (sw3>>5) & 017;
 	pdp->spcwar2 = (sw3>>9) & 017;
 
+	/* the reader key drives nothing on this machine, so it is the way out
+	 * of a debug override from the panel itself: either position releases
+	 * it.  Before dbgoverride, so it takes effect on this very pass. */
+	dbgreaderkey(pdp, !!(sw2 & (KEY_READER|KEY_READER_UP)));
+
 	/* the debug service sits on top of the panel, at the decoded level,
 	 * so it needs no bit layout and both panels get it from one place */
 	dbgoverride(pdp);
@@ -42,7 +47,7 @@ updateswitches(PDP1 *pdp, Panel *panel)
 void
 updatelights(PDP1 *pdp, Panel *panel)
 {
-	int l5, l8, l9;
+	int l5, l8, l9, pf;
 	l5 = 0;
 	if(pdp->run) l5 |= L5_RUN;
 	if(pdp->cyc) l5 |= L5_CYC;
@@ -86,13 +91,20 @@ updatelights(PDP1 *pdp, Panel *panel)
 	if(pdp->df2) l9 |= 0000040;
 	if(pdp->ov2) l9 |= 0000020;
 
+	/* the debug service is holding TW or SS: the switches under the
+	 * operator's hands are not the ones the program is reading.  Light
+	 * every program flag to say so — the flags are the only lamp group
+	 * that is otherwise free to borrow, and losing sight of them while
+	 * someone else drives the switches costs nothing. */
+	pf = dbgswoverride() ? 077 : pdp->pf;
+
 	panel->lights0 = pdp->epc | PC;
 	panel->lights1 = pdp->ema | MA;
 	panel->lights2 = MB;
 	panel->lights3 = AC;
 	panel->lights4 = IO;
 	panel->lights5 = l5;
-	panel->lights6 = pdp->ir<<13 | pdp->ss<<6 | pdp->pf;
+	panel->lights6 = pdp->ir<<13 | pdp->ss<<6 | pf;
 	panel->lights7 = pdp->rb;
 	panel->lights8 = l8;
 	panel->lights9 = l9;

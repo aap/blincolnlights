@@ -17,6 +17,12 @@ void dbgstop(PDP1 *pdp);
 void dbgsvc(PDP1 *pdp);
 void dbgoverride(PDP1 *pdp);
 
+/* the other two halves of the override, both for the panel files:
+ * dbgswoverride() is nonzero while TW or SS are being held, so the panel
+ * can warn about it in the lights; dbgreaderkey() is the physical release. */
+int dbgswoverride(void);
+void dbgreaderkey(PDP1 *pdp, int down);
+
 /* watchpoints.  dbg_anywp is zero unless a watchpoint is set, so the
  * memory fast path stays one predictable branch. */
 extern int dbg_anywp;
