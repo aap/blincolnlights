@@ -108,7 +108,8 @@ MUST discard input through the next `\n` so the connection stays in sync.
 - Commands and names are case-insensitive; lowercase is canonical.
 - Arguments are separated by runs of spaces and/or tabs.
 - **Addresses and machine words are octal, always, no prefix.** Counts,
-  timeouts, and light-pen radii are **decimal**. Each command below says which.
+  timeouts, and light-pen values are **decimal**. Each command below says
+  which.
 - Words are printed zero-padded to 6 octal digits, addresses to 6.
 - Unknown trailing arguments are an error (`?arg`), never ignored.
 
@@ -406,6 +407,43 @@ keep working: `reader`/`r [<file>]`, `punch`/`p [<file>]`,
 as they do today. These are the only verbs that are lenient about their
 arguments, because existing clients send things like `muldiv ?`.
 
+**`pen click <x> <y> [<ms>]`** — put the Type 32 light pen down at `(x,y)`
+and release it `ms` later. This is the whole light pen interface: a click,
+nothing else.
+
+```
+> pen click 512 300
++ pen click x=512 y=300 ms=100
+```
+
+`x`, `y` and `ms` are decimal; `x`, `y` are `0..1023` and `ms` is
+`1..10000`, default `100`. Unlike the lenient verbs above this one is
+strict — out of range, missing, or unknown trailing arguments are `?arg`.
+It is told apart from `pen [<n>]` by its first argument not being a number.
+
+The command **replies immediately.** The client already knows how long it
+asked for, so if it wants the machine's reaction it sleeps that long and then
+reads. There is no pending form, no polling and no event. A second
+`pen click` replaces the first — the position moves and the timer restarts —
+and never queues. Machine state never refuses it, because the pen is input
+like the GUI mouse, but it is a write and so answers `?busy` while another
+connection holds the claim.
+
+`ms` should span several display refreshes so the program is sure to plot
+under the pen while it is down; 100 ms is about six frames of a 60 Hz redraw
+loop, which is why it is the default. A 1 ms click is legal and will usually
+be missed. A click while the machine is halted lasts its full duration and
+achieves nothing, since no `dpy` runs.
+
+**Coordinates** are screen units, `0..1023`, origin bottom-left, **y up** —
+the same space as the port-3400 pen wire format. This is *not* the space the
+program computes in: a pen program works in AC/IO units, signed 10-bit, which
+`mapcoord()` (`pdp1.c:1802`) folds as `0..511` → `512..1023` and `-512..-1` →
+`1..512`. So roughly *screen = program + 512*, but not exactly — `0` and `-1`
+both land on 512. Clients convert; the server offers one coordinate space,
+because two spaces in one protocol produces bugs that only show up near the
+origin.
+
 ---
 
 ## 6. Events
@@ -477,6 +515,36 @@ opened.
   the machine, which makes it ideal for watching a program while it runs.
   **Client writes to that segment are not supported** — they race `emu()`.
   All writes go through `d`/`poke`/`w`.
+- **The light pen must not need an audience.** `display()` hit-tests the pen
+  at `pdp1.c:1821`, *below* the `dpyactive` gate at 1819, so today the pen
+  sees nothing unless something is connected to port 3400. Nobody has noticed
+  because the existing way to drive the pen — stream 4-byte commands to 3400
+  — is itself a display connection, so it switches the hit-test on as a side
+  effect. Over 1040 that side effect is gone: `pen click` would set the pen
+  down, reply `+`, and never fire a flag, silently. Hoist the hit-test above
+  the gate. The Type 32 sees the CRT beam, which exists whether or not anyone
+  has a window open; the gate is there to avoid queueing commands for nobody,
+  which is a different concern. (With both screens connected the pen already
+  hit-tests twice per point, since the two-screen demux returns at 1833,
+  below it. Hoisting makes that unconditional rather than new, and `sas` is
+  `|=`, so it stays harmless.)
+- `pen click` is one `u64 penuptime` next to `penx`/`peny` (`pdp1.h:116`,
+  which is past both offsets the Python tools hardcode), a `dpypen()` call in
+  `handlecmd()` (`pdp1.c:2164`) so the local CLI gets it too, and a release
+  in `handleio()` beside the other device timers (`pdp1.c:1859` onward),
+  which are all this same shape. `ms` is real time in every power state with
+  no special case, because simtime is throttled to the wall clock in all
+  three branches of the main loop. Clear `pendown` in `pwrclr()` as well, so
+  a click spanning a power-off does not leave the pen down.
+- **The pen's `cks` bit and PF3 are already correct**; do not "fix" them.
+  `IO |= lps<<17` (`pdp1.c:1670`) looks like it disagrees with the Handbook's
+  "IO bit 0", but DEC numbers bits 0..17 left to right, so Handbook bit 0 is
+  the MSB is C shift 17 — and the rest of that block descends 16, 15, 14, 13,
+  11, which is DEC bits 1, 2, 3, 4, 6 and the Handbook's `cks` layout exactly.
+  `pf |= 010` is PF3 in the same reversed numbering the sense switches use.
+  `gcf` is a separate and still open question — `pdp1.c:1617` clears `lps`
+  only when `!DPY`, so for plain `gcf` never, against the Handbook's
+  unconditional wording — but nothing above depends on how it lands.
 
 ## 9. Worked example
 
@@ -525,6 +593,23 @@ emulator (DEBUG_NOTES §8a) and a single probe against a stale segment can
 pass by accident. They also skip, rather than fail, if a live panel driver
 is scanning over their key press. `panel_power_mirror` is still a hand
 check (`panel off` refuses, `panel off force` powers the machine down).
+
+The light pen tests are specified here but **not yet written, and not in
+those counts** — the emulator side does not exist yet. When it lands:
+
+- `pen click 512 300` → `+ pen click x=512 y=300 ms=100`; with `250` →
+  `ms=250`.
+- `pen click 1024 300`, `pen click 512 -1`, `pen click 512 300 0`,
+  `pen click 512 300 20000` and `pen click 512` → `?arg`. `pen 99` → `pen
+  16`, still clamped and still not an error.
+- `pen click` succeeds both while running and while halted, and answers
+  `?busy` from a second connection while the first holds the claim.
+- The pen releases itself: after `pen click 512 300 100`, a program plotting
+  at 512,300 and counting PF3 stops seeing hits within ~200 ms.
+- The previous test again with **nothing connected to port 3400** — the
+  regression guard for the hit-test hoist in §8. Without the hoist this is
+  the only pen test that fails while every other test in the suite passes,
+  which is exactly why it has to exist.
 
 `test/pdp1dbg_mock.py` is a reference server — the protocol over a small
 instruction-level PDP-1 (not a TP-level emulator; a stand-in so the suite is
