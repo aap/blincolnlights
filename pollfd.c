@@ -78,7 +78,12 @@ pollfds(void)
 				/* fd was closed */
 //printf("received close for fd %d slot %d\n", pfds[fd->id].fd, fd->id);
 				assert(fd->id >= 0);
-				close(pfds[fd->id].fd);
+				/* close fd->fd, NOT pfds[].fd: once an fd has
+				 * gone ready we set pfds[].fd = -1 to stop
+				 * polling it, so by the time the owner closes
+				 * it that slot no longer knows the number and
+				 * we would close(-1) and leak the socket. */
+				close(fd->fd);
 				removeslot(fd->id);
 				break;
 			}
