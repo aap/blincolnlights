@@ -91,7 +91,10 @@ socketlisten(int port)
 		fprintf(stderr, "port %d\n", port);
 		return -1;
 	}
-	listen(fd, 1);
+	/* a backlog of 1 drops the second of two connections that arrive
+	 * close together, which is exactly what a client that just crashed
+	 * and is retrying looks like */
+	listen(fd, 8);
 	return fd;
 }
 
