@@ -999,6 +999,7 @@ static const char *helptext[] = {
 	"dpy|display [host [port]]  connect to a display program",
 	"muldiv|audio [on|off]      options",
 	"sbs [1|16]  pen [<n>]      options (decimal)",
+	"pen click <x> <y> [<ms>]   click the light pen (decimal, y up)",
 	"NB: opcode 0 is not HLT.  Real HLT is 760400; 0 stops as ?illegal.",
 	"NB: sense switch/flag N is bit 040>>(N-1).  Switch 1 is 40, not 1.",
 	"NB: overriding tw or ss lights every sense switch lamp, and the tape",
@@ -1192,6 +1193,17 @@ docmd(PDP1 *pdp, DbgConn *dc, char *line)
 			pdp->cyc = pdp->df1 = pdp->df2 = 0;
 			pdp->bc = pdp->hsc = 0;
 			pdp->cychack = 0;
+			/* and the in-out transfer with it, exactly as sc()
+			 * does for START.  ioc is the command enable, and it
+			 * is only recomputed at TP2 of an IOT that follows
+			 * another IOT -- so a machine that has never been
+			 * started still has ioc=0, the first IOT gets no
+			 * device pulse, and an in-out wait then waits for a
+			 * completion nobody ever asked for.  It hangs on the
+			 * instruction forever.  Left over from the same
+			 * mid-cycle problem as the flip-flops above. */
+			pdp->ioc = 1;
+			pdp->ioh = pdp->ios = pdp->ihs = 0;
 		}
 		regprint(pdp, r, buf, sizeof(buf));
 		ok(dc, "%s", buf);
@@ -1586,9 +1598,11 @@ docmd(PDP1 *pdp, DbgConn *dc, char *line)
 	/* --- devices: port 1040's own language, unchanged --- */
 	if(denied(dc, 1)) return;
 	{
-		char *p = handlecmd(pdp, raw);
+		char *p = handlecmd(pdp, raw, 1);
 		if(cmdunknown)
 			err(dc, "?cmd unknown command: %s (try help)", argv[0]);
+		else if(cmdarg)
+			err(dc, "?arg %s", p);
 		else if(cmdfailed)
 			err(dc, "?file %s", p);
 		else

@@ -17,6 +17,7 @@
 #include <netdb.h>
 
 #include <poll.h>
+#include <errno.h>
 
 #include "common.h"
 
@@ -98,6 +99,48 @@ socketlisten(int port)
 	return fd;
 }
 
+/* Connect with a bounded wait, and hand back a blocking socket.
+ *
+ * A plain connect() to a host that drops SYNs takes the full TCP timeout,
+ * over two minutes.  pdp1 dials from its command language, on the emulator
+ * thread, so a single `dpy <unreachable>' from any peer froze the machine
+ * and every port it serves for that long -- it looked like the listener
+ * had died.  Everything anyone dials here is on the same machine or the
+ * same LAN, so a couple of seconds is already generous. */
+enum { DIALMS = 2000 };
+
+static int
+connectto(int fd, const struct sockaddr *addr, socklen_t addrlen)
+{
+	struct pollfd pfd;
+	int fl, err;
+	socklen_t errlen;
+
+	fl = fcntl(fd, F_GETFL, 0);
+	if(fl < 0 || fcntl(fd, F_SETFL, fl|O_NONBLOCK) < 0)
+		return -1;
+	if(connect(fd, addr, addrlen) < 0) {
+		if(errno != EINPROGRESS)
+			return -1;
+		pfd.fd = fd;
+		pfd.events = POLLOUT;
+		if(poll(&pfd, 1, DIALMS) != 1) {
+			errno = ETIMEDOUT;
+			return -1;
+		}
+		err = 0;
+		errlen = sizeof(err);
+		if(getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0)
+			return -1;
+		if(err) {
+			errno = err;
+			return -1;
+		}
+	}
+	/* every caller expects a blocking fd back */
+	return fcntl(fd, F_SETFL, fl);
+}
+
 int
 dial(const char *host, int port)
 {
@@ -119,7 +162,7 @@ dial(const char *host, int port)
 		sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if(sockfd < 0)
 			continue;
-		if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) >= 0)
+		if(connectto(sockfd, rp->ai_addr, rp->ai_addrlen) >= 0)
 			goto win;
 		close(sockfd);
 	}

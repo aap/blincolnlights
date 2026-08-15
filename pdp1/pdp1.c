@@ -212,6 +212,11 @@ pwrclr(PDP1 *pdp)
 	pdp->dpy_defl_time = NEVER;
 	pdp->dpy_time = NEVER;
 
+	// handleio doesn't run while unpowered, so a click that spans a
+	// power-off would otherwise leave the pen down forever.
+	pdp->pendown = 0;
+	pdp->penuptime = NEVER;
+
 
 
 	// HACK: on power on the next cycle is undefined
@@ -1816,13 +1821,20 @@ display(PDP1 *pdp, int xoff, int yoff, int i)
 	agedisplay(pdp, i);
 	// reset age interval for every point shown
 	pdp->dpy[i].agetime = 50*1000;
-	if(!dpyactive(&pdp->dpy[i]))
-		return;
+	/* The Type 32 sees the CRT beam, which exists whether or not anyone
+	 * has a window open, so the hit-test happens above the dpyactive
+	 * gate.  It used to be below, which was invisible for as long as the
+	 * only way to move the pen was to stream commands to 3400 -- that is
+	 * itself a display connection, so it switched the hit-test on as a
+	 * side effect.  `pen click' over 1040 has no such side effect and
+	 * would have set the pen down and never fired a flag. */
 	if(pdp->pendown) {
 		int dx = pdp->penx - x;
 		int dy = pdp->peny - y;
 		pdp->sas |= dx*dx + dy*dy <= pdp->penr*pdp->penr;
 	}
+	if(!dpyactive(&pdp->dpy[i]))
+		return;
 	int dt = (pdp->simtime - pdp->dpy[i].last)/1000;
 	int cmd = x | (y<<10) | (dt<<23);
 	int in = pdp->dint;
@@ -1960,6 +1972,14 @@ if(pdp->pf & 040) printf("	char missed <%o>\n", pdp->tb);
 		pdp->tyi_wait = pdp->simtime + US(25000);
 	}
 
+	/* Light pen: release a `pen click' when its time is up.  simtime is
+	 * throttled to the wall clock, so this is real time in every power
+	 * state without a special case. */
+	if(pdp->penuptime < pdp->simtime) {
+		pdp->penuptime = NEVER;
+		pdp->pendown = 0;
+	}
+
 	/* Display */
 #ifdef SYMGEN
 	if(pdp->dpy_defl_time < pdp->simtime) {
@@ -2052,19 +2072,74 @@ cli(PDP1 *pdp)
 	if(n > 0 && n < sizeof(line)) {
 		line[n] = '\0';
 
-		char *resp = handlecmd(pdp, line);
+		char *resp = handlecmd(pdp, line, 0);
 		printf("%s\n", resp);
 	}
 }
 
-int cmdfailed, cmdunknown;
+int cmdfailed, cmdunknown, cmdarg;
+
+/* Tapes reachable over the network live under here.  The command language
+ * can open, create and truncate files, and 1040 has to stay open to the
+ * local network so pdp_periph and the frontends can attach -- so the
+ * filenames are confined instead of the port.  Binding loopback would have
+ * closed the same hole by breaking the thing it exists for. */
+char *tapedir = ".";
+
+/* Resolve a filename that arrived over the network.  Relative paths only,
+ * no `..' component, so everything stays under tapedir.  (A symlink already
+ * inside the tree can still point out of it; that needs someone with an
+ * account to have put it there, which is not the threat here.)  Names typed
+ * at the local CLI are not touched -- that is the operator at the console,
+ * who has a shell anyway. */
+static char*
+tapepath(const char *name, int remote, char *buf, int sz)
+{
+	const char *p;
+
+	if(!remote)
+		return (char*)name;
+	if(name[0] == '/')
+		return nil;
+	for(p = name; *p; p++) {
+		if(p[0] != '.' || p[1] != '.')
+			continue;
+		if((p == name || p[-1] == '/') && (p[2] == '/' || p[2] == '\0'))
+			return nil;
+	}
+	if(snprintf(buf, sz, "%s/%s", tapedir, name) >= sz)
+		return nil;
+	return buf;
+}
+
+/* strict decimal argument: all digits or nothing.  A leading `-' is not a
+ * sign but a parse error, which is what we want -- every caller wants a
+ * count or a coordinate, and `?arg' is the answer either way. */
+static int
+decarg(const char *s, int *out)
+{
+	int v = 0;
+
+	if(s == nil || *s == '\0')
+		return 0;
+	for(; *s; s++) {
+		if(*s < '0' || *s > '9')
+			return 0;
+		v = v*10 + (*s - '0');
+		if(v > 1000*1000)
+			return 0;
+	}
+	*out = v;
+	return 1;
+}
 
 char*
-handlecmd(PDP1 *pdp, char *line)
+handlecmd(PDP1 *pdp, char *line, int remote)
 {
 	int n;
 	static char resp[1024];
-	char *p;
+	static char pathbuf[1024];
+	char *p, *path;
 
 	if(p = strchr(line, '\r'), p) *p = '\0';
 	if(p = strchr(line, '\n'), p) *p = '\0';
@@ -2074,6 +2149,7 @@ handlecmd(PDP1 *pdp, char *line)
 
 	cmdfailed = 0;
 	cmdunknown = 0;
+	cmdarg = 0;
 	strcpy(resp, "ok");
 	if(n > 0) {
 		// reader
@@ -2082,10 +2158,15 @@ handlecmd(PDP1 *pdp, char *line)
 			close(pdp->r_fd);
 			pdp->r_fd = -1;
 			if(args[1]) {
-				pdp->r_fd = open(args[1], O_RDONLY);
-				if(pdp->r_fd < 0) {
+				path = tapepath(args[1], remote,
+						pathbuf, sizeof(pathbuf));
+				if(path == nil) {
 					cmdfailed = 1;
-					sprintf(resp, "couldn't open %s", args[1]);
+					sprintf(resp, "outside the tape directory: %.200s", args[1]);
+				} else if(pdp->r_fd = open(path, O_RDONLY),
+					  pdp->r_fd < 0) {
+					cmdfailed = 1;
+					sprintf(resp, "couldn't open %.200s", args[1]);
 				}
 			}
 		}
@@ -2095,10 +2176,15 @@ handlecmd(PDP1 *pdp, char *line)
 			close(pdp->p_fd);
 			pdp->p_fd = -1;
 			if(args[1]) {
-				pdp->p_fd = open(args[1], O_CREAT|O_WRONLY|O_TRUNC, 0644);
-				if(pdp->p_fd < 0) {
+				path = tapepath(args[1], remote,
+						pathbuf, sizeof(pathbuf));
+				if(path == nil) {
 					cmdfailed = 1;
-					sprintf(resp, "couldn't open %s", args[1]);
+					sprintf(resp, "outside the tape directory: %.200s", args[1]);
+				} else if(pdp->p_fd = open(path, O_CREAT|O_WRONLY|O_TRUNC, 0644),
+					  pdp->p_fd < 0) {
+					cmdfailed = 1;
+					sprintf(resp, "couldn't open %.200s", args[1]);
 				}
 			}
 		}
@@ -2112,10 +2198,15 @@ handlecmd(PDP1 *pdp, char *line)
 				rimfile = strdup(args[1]);
 			}
 			if(rimfile) {
-				fd = open(rimfile, O_RDONLY);
-				if(fd < 0) {
+				path = tapepath(rimfile, remote,
+						pathbuf, sizeof(pathbuf));
+				fd = path ? open(path, O_RDONLY) : -1;
+				if(path == nil) {
 					cmdfailed = 1;
-					sprintf(resp, "couldn't open %s", rimfile);
+					sprintf(resp, "outside the tape directory: %.200s", rimfile);
+				} else if(fd < 0) {
+					cmdfailed = 1;
+					sprintf(resp, "couldn't open %.200s", rimfile);
 				} else {
 					readrim(pdp, fd);
 					close(fd);
@@ -2162,13 +2253,52 @@ handlecmd(PDP1 *pdp, char *line)
 		}
 		// pen
 		else if(strcmp(args[0], "pen") == 0) {
-			if(args[1]) {
-				int r = atoi(args[1]);
-				if(r < 3) r = 3;
-				if(r > 16) r = 16;
-				pdp->penr = r;
+			/* `pen click <x> <y> [<ms>]' puts the pen down at a
+			 * point and releases it ms later.  That is the whole
+			 * light pen interface: a program that picks rather
+			 * than tracks only hit-tests, so teleporting is right
+			 * for it.  Told apart from the radius by the first
+			 * argument not being a number, and unlike the radius
+			 * it is strict about its arguments. */
+			if(args[1] && strcmp(args[1], "click") == 0) {
+				int x, y, ms = 100;
+				if(n < 4 || !decarg(args[2], &x) ||
+				   !decarg(args[3], &y)) {
+					cmdarg = 1;
+					strcpy(resp, "pen click <x> <y> [<ms>]");
+				} else if(x < 0 || x > 1023 ||
+					  y < 0 || y > 1023) {
+					cmdarg = 1;
+					strcpy(resp, "decimal x, y in 0..1023");
+				} else if(n > 4 &&
+					  (!decarg(args[4], &ms) ||
+					   ms < 1 || ms > 10000)) {
+					cmdarg = 1;
+					strcpy(resp, "decimal ms in 1..10000");
+				} else if(n > 5) {
+					cmdarg = 1;
+					strcpy(resp, "pen click <x> <y> [<ms>]");
+				} else {
+					/* through dpypen, so this and the
+					 * 3400 GUI channel share one code
+					 * path and one last-write-wins rule.
+					 * A second click moves the pen and
+					 * restarts the timer, never queues. */
+					dpypen(pdp, 1<<20 | x<<10 | y);
+					pdp->penuptime = pdp->simtime +
+						(u64)ms*1000000;
+					sprintf(resp, "pen click x=%d y=%d ms=%d",
+						x, y, ms);
+				}
+			} else {
+				if(args[1]) {
+					int r = atoi(args[1]);
+					if(r < 3) r = 3;
+					if(r > 16) r = 16;
+					pdp->penr = r;
+				}
+				sprintf(resp, "pen %d", pdp->penr);
 			}
-			sprintf(resp, "pen %d", pdp->penr);
 		}
 		// help
 		else if(strcmp(args[0], "?") == 0 ||
@@ -2181,6 +2311,7 @@ handlecmd(PDP1 *pdp, char *line)
 			p += sprintf(p, "l filename            load memory from RIM-file\n");
 			p += sprintf(p, "d [host] [port]       connect to display program\n");
 			p += sprintf(p, "pen [1-6]             set light pen radius\n");
+			p += sprintf(p, "pen click x y [ms]    click the light pen (decimal)\n");
 			p += sprintf(p, "muldiv [on/off]       set/toggle type 10 mul-div option");
 			p += sprintf(p, "audio [on/off]        set/toggle audio output");
 		}

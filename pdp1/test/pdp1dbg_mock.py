@@ -59,6 +59,10 @@ class Machine:
         self.calls = []       # ring of (to, frm, ret)
         self.panel = False    # override armed
         self.claim = None
+        self.penr = 5         # light pen: radius, position, and the click
+        self.penx = self.peny = 0
+        self.pendown = False
+        self.penup_at = 0.0
         self.budget = -1
         self.cond = None
         self.hit = None       # pending !bp / !wp description
@@ -304,6 +308,22 @@ def dec(s, lo=0, hi=1 << 30):
     if not lo <= v <= hi:
         raise Err("?limit", "count out of range")
     return v
+
+
+TAPEDIR = "."
+
+
+def tapepath(name):
+    """Filenames off the network are confined to the tape directory.
+
+    The command language can open, create and truncate files, and the port
+    stays reachable from the local network so pdp_periph can attach, so it
+    is the names that are constrained rather than the bind address.
+    """
+    if name.startswith("/") or \
+       any(c == ".." for c in name.split("/")):
+        raise Err("?file", "outside the tape directory: %s" % name)
+    return TAPEDIR + "/" + name
 
 
 def parsecond(args):
@@ -729,7 +749,7 @@ class Conn(socketserver.StreamRequestHandler):
             raise Err("?arg", "load <file>")
         m = self.srv.m
         try:
-            data = open(a[0], "rb").read()
+            data = open(tapepath(a[0]), "rb").read()
         except OSError as e:
             raise Err("?file", str(e))
         # RIM: triples of punched frames -> 18-bit words
@@ -749,13 +769,59 @@ class Conn(socketserver.StreamRequestHandler):
                     raise Err("?file", "rim botch at word %d" % i)
         return "loaded" + (" start=%06o" % start if start is not None else "")
 
-    def c_reader(self, a): return ""
-    def c_punch(self, a): return ""
+    def c_reader(self, a):
+        if a:
+            tapepath(a[0])
+        return ""
+
+    def c_punch(self, a):
+        if a:
+            tapepath(a[0])
+        return ""
+
+    c_p = c_punch            # spec §5 spells these punch|p and load|l
+    c_l = c_load
     def c_display(self, a): return ""
+    c_dpy = c_display        # the mock has no screen to connect to either way
     def c_muldiv(self, a): return "muldiv on"
     def c_audio(self, a): return "audio off"
     def c_sbs(self, a): return "sbs 16"
-    def c_pen(self, a): return "pen 5"
+    def c_pen(self, a):
+        """pen [<n>] is the radius; pen click <x> <y> [<ms>] is the pen.
+
+        The mock has no display, so a click moves the pen and starts its
+        release timer but nothing can ever be seen under it -- the tests
+        for that skip here and run against the emulator.  What is worth
+        having right is the reply shape and the argument checking, since
+        `click' is the one device verb that is strict.
+        """
+        m = self.srv.m
+        if a and a[0].lower() == "click":
+            def d(s, lo, hi, what):
+                if s is None or not s.isdigit():
+                    raise Err("?arg", "pen click <x> <y> [<ms>]")
+                v = int(s, 10)
+                if not lo <= v <= hi:
+                    raise Err("?arg", "decimal %s in %d..%d" % (what, lo, hi))
+                return v
+
+            if not 3 <= len(a) <= 4:
+                raise Err("?arg", "pen click <x> <y> [<ms>]")
+            x = d(a[1], 0, 1023, "x, y")
+            y = d(a[2], 0, 1023, "x, y")
+            ms = d(a[3], 1, 10000, "ms") if len(a) == 4 else 100
+            with m.lock:
+                # a second click replaces the first: it never queues
+                m.penx, m.peny, m.pendown = x, y, True
+                m.penup_at = time.time() + ms / 1000.0
+            return "pen click x=%d y=%d ms=%d" % (x, y, ms)
+        if a:
+            try:
+                r = int(a[0], 10)
+            except ValueError:
+                r = 0           # atoi(), because the radius is lenient
+            m.penr = max(3, min(16, r))
+        return "pen %d" % m.penr
 
 
 class Server(socketserver.ThreadingTCPServer):

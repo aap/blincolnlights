@@ -407,6 +407,25 @@ keep working: `reader`/`r [<file>]`, `punch`/`p [<file>]`,
 as they do today. These are the only verbs that are lenient about their
 arguments, because existing clients send things like `muldiv ?`.
 
+**Filenames are confined to the tape directory.** `reader`, `punch` and
+`load` open, create and truncate whatever they are handed, and `punch` uses
+`O_CREAT|O_WRONLY|O_TRUNC` — so over the network a name MUST be relative
+and MUST NOT contain a `..` component, and is resolved under the tape
+directory (`-D <dir>`, default the working directory). Anything else is
+`?file outside the tape directory: <name>`. Subdirectories are allowed, so
+`reader tapes/spacewar.rim` still works.
+
+This is deliberately a constraint on the names and not on the bind address.
+The port has to stay reachable from the local network — that is how
+`pdp_periph` and the frontends attach — so binding loopback would have
+closed the hole by breaking the thing the port exists for. Without the
+confinement, `punch <any path>` truncates any file the emulator can write,
+which needs no PDP-1 knowledge whatsoever; `reader` plus a deposited
+program is a slower arbitrary read.
+
+Names typed at the **local CLI are not confined**: that is the operator at
+the console, who has a shell already. Only lines arriving over 1040 are.
+
 **`pen click <x> <y> [<ms>]`** — put the Type 32 light pen down at `(x,y)`
 and release it `ms` later. This is the whole light pen interface: a click,
 nothing else.
@@ -582,8 +601,10 @@ $ telnet localhost 1040
 
 `test/pdp1dbg_test.py` is the executable form of this spec: stdlib-only,
 `--host`/`--port`, works against any implementation. It is the definition of
-"done" for the emulator side. As of this writing: **34 pass, 0 fail, 1 skip**
-against the emulator, **32 pass, 0 fail, 3 skip** against the mock.
+"done" for the emulator side. As of this writing, of 42 tests: **41 pass, 0
+fail, 1 skip** against the emulator, **37 pass, 0 fail, 5 skip** against the
+mock. Two more skip against the emulator whenever a panel driver is running
+(39/0/3), since it scans over their key press.
 
 Three tests need the real `/tmp/pdp1_panel` segment, so they skip against
 anything that has no panel. `panel_override_lights_the_sense_switches` and
@@ -594,22 +615,57 @@ pass by accident. They also skip, rather than fail, if a live panel driver
 is scanning over their key press. `panel_power_mirror` is still a hand
 check (`panel off` refuses, `panel off force` powers the machine down).
 
-The light pen tests are specified here but **not yet written, and not in
-those counts** — the emulator side does not exist yet. When it lands:
+The five light pen tests are written and in those counts:
 
-- `pen click 512 300` → `+ pen click x=512 y=300 ms=100`; with `250` →
-  `ms=250`.
-- `pen click 1024 300`, `pen click 512 -1`, `pen click 512 300 0`,
-  `pen click 512 300 20000` and `pen click 512` → `?arg`. `pen 99` → `pen
-  16`, still clamped and still not an error.
-- `pen click` succeeds both while running and while halted, and answers
-  `?busy` from a second connection while the first holds the claim.
-- The pen releases itself: after `pen click 512 300 100`, a program plotting
-  at 512,300 and counting PF3 stops seeing hits within ~200 ms.
-- The previous test again with **nothing connected to port 3400** — the
-  regression guard for the hit-test hoist in §8. Without the hoist this is
-  the only pen test that fails while every other test in the suite passes,
-  which is exactly why it has to exist.
+- `pen_click` — `pen click 512 300` → `+ pen click x=512 y=300 ms=100`; with
+  `250` → `ms=250`.
+- `pen_click_args` — `pen click 1024 300`, `pen click 512 -1`, `pen click
+  512 300 0`, `pen click 512 300 20000`, `pen click 512` and a trailing
+  argument → `?arg`. `pen 99` → `pen 16`, still clamped and still not an
+  error.
+- `pen_click_state_and_claim` — succeeds both while running and while
+  halted, and answers `?busy` from a second connection while the first
+  holds the claim.
+- `pen_click_releases` — the pen goes back up on its own: a program
+  plotting at 512,300 and counting PF3 sees hits during a 200 ms click and
+  none after it, and never sees a click at 100,100 at all.
+- `pen_click_needs_no_audience` — the previous test again with **nothing
+  connected to the display** — the regression guard for the hit-test hoist
+  in §8. Without the hoist this is the only test in the suite that fails,
+  which is exactly why it has to exist. (Verified by reverting the hoist:
+  38 pass, 1 fail, and the one failure is this test.)
+
+The last two need a display, and take one rather than assuming port 3400:
+they ask the server to `dpy` back to a listening socket of their own. 3400
+is a fixed port, so a mock running on a host that is *also* running the
+emulator would otherwise borrow the emulator's screen and report on the
+wrong machine. Having the server dial out settles both questions at once —
+it has a display, and this is the machine driving it.
+
+The pen program uses `dpy` with the in-out wait, which is what the
+Handbook requires for the pen's coordinates to be valid in AC/IO, and which
+also paces the loop to the display for free. `dpy-i` needs a delay loop
+instead: a `dpy` only reaches the screen 35 µs later, and a plot loop with
+nothing else to do keeps resetting that timer, so the no-wait version
+never plots at all.
+
+Writing that program turned up a real bug in `w pc`, now fixed and guarded
+by `w_pc_clears_the_in_out_transfer`: **`w pc` did not clear the in-out
+transfer state**, so a machine that had never been started could not
+execute a single IOT with an in-out wait. `ioc`, the device command
+enable, is computed at TP2 but `IR` is not loaded until TP5 — so `ioc` is
+only ever recomputed by an IOT that follows another IOT, and is otherwise
+sticky. `sc()` sets it for START, and nothing set it for `w pc`. The first
+IOT therefore got no device pulse, raised the in-out halt anyway, and
+waited forever for a completion nobody had asked for. `w pc` now does the
+in-out half of the start-clear too, for the same reason it already cleared
+`cyc`/`df1`/`df2`/`bc`/`hsc`: a fetch boundary means all of it.
+
+It is worth being precise about the blast radius, because this looked at
+first like `dpy` being broken and it is nothing of the sort. START was
+always fine, so every program run from the panel or with `go <addr>`
+always worked. Only the `w pc <addr>` + `go` path was affected, and only
+for in-out-wait IOTs.
 
 `test/pdp1dbg_mock.py` is a reference server — the protocol over a small
 instruction-level PDP-1 (not a TP-level emulator; a stand-in so the suite is

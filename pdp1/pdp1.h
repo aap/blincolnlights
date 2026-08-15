@@ -114,6 +114,7 @@ struct PDP1
 	int lps;
 	// simulation
 	int penx, peny, penr, pendown;
+	u64 penuptime;	// release a `pen click' here, NEVER if not clicking
 	int sas;	// saw a spot, set at DDP
 	u64 dpy_defl_time;
 	u64 dpy_time;
@@ -236,9 +237,12 @@ void handleio(PDP1 *pdp);
 void agedisplay(PDP1 *pdp, int i);
 void throttle(PDP1 *pdp);
 void cli(PDP1 *pdp);
-char *handlecmd(PDP1 *pdp, char *line);
+/* remote: the line came in over the network, so filenames in it
+ * are confined to tapedir.  0 is the operator at the local CLI. */
+char *handlecmd(PDP1 *pdp, char *line, int remote);
+extern char *tapedir;
 /* handlecmd's out-of-band result, for callers that have to frame a reply */
-extern int cmdfailed, cmdunknown;
+extern int cmdfailed, cmdunknown, cmdarg;
 
 /* Would the next cycle() begin a new instruction?  Not INST_DONE, which
  * asks whether the current one is finishing: we want the gap between

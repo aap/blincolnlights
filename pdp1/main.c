@@ -184,7 +184,7 @@ char *argv0;
 void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-lt] [-h host] [-p port]\n", argv0);
+	fprintf(stderr, "usage: %s [-lt] [-D tapedir] [-h host] [-p port]\n", argv0);
 	exit(1);
 }
 
@@ -275,6 +275,11 @@ main(int argc, char *argv[])
 		/* listen on loopback only.  the ports carry a command
 		 * language that can open and truncate files. */
 		netlocalonly = 1;
+		break;
+	case 'D':
+		/* where tapes named over the network are allowed to be.
+		 * default is the working directory. */
+		tapedir = EARGF(usage());
 		break;
 	case 't':
 		/* headless: no coremem load/dump, POWER forced on, no tapes.

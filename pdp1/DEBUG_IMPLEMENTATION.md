@@ -13,17 +13,47 @@ fighting it.
 
 ## Status
 
-Phases 0–4 are **done**; phase 5 is client work in the other two repos and
-has not been started. `pdp1/test/pdp1dbg_test.py` reports 34 passed, 0
-failed, 1 skipped against `pdp1 -t`, and 32/0/3 against the mock — the two
-extra skips are the panel-segment tests, which no panel-less server can pass.
+Phases 0–4 are **done**, and so is the light pen (`pen click`, spec §5);
+phase 5 is client work in the other two repos and has not been started.
+Of 42 tests, `pdp1/test/pdp1dbg_test.py` reports 41 passed, 0 failed, 1
+skipped against `pdp1 -t` (39/0/3 while a panel driver is scanning), and
+37/0/5 against the mock — its extra skips are the panel-segment tests and
+the two pen tests that need a display, none of which a panel-less,
+screen-less server can pass.
 
 New: `netsvc.c`/`netsvc.h`, `pdp1/dbg.c`/`dbg.h`. Touched: `main.c` (the two
-hooks, `startnet`, `-t`, `-l`), `pdp1.c` (`atfetch`, the two watchpoint
-lines, `cmdfailed`/`cmdunknown`, display fan-out), `pdp1.h` (`void *dbg` at
-the very end, `DispCon`), both panel files (the override, the program-flag
-warning, and on the PiDP-1 the reader-key unlock), `typtelnet.c` (fan-out),
-`common.c` (`netlocalonly`).
+hooks, `startnet`, `-t`, `-l`, `-D`), `pdp1.c` (`atfetch`, the two watchpoint
+lines, `cmdfailed`/`cmdunknown`/`cmdarg`, `tapepath`, display fan-out),
+`pdp1.h` (`void *dbg` at the very end, `DispCon`), both panel files (the
+override, the program-flag warning, and on the PiDP-1 the reader-key
+unlock), `typtelnet.c` (fan-out), `common.c` (`netlocalonly`).
+
+`handlecmd` gained a `remote` argument rather than a global: whether a line
+came off the network decides whether its filenames are confined, and that is
+an input, not one of the out-of-band results.
+
+**The light pen** is `pen click <x> <y> [<ms>]` and five conformance tests.
+It is `u64 penuptime` beside `penx`/`peny`, a release in `handleio()` with
+the other device timers, a clear in `pwrclr()` (which is what covers the
+unpowered case, since `handleio` does not run then), the parse in
+`handlecmd()` so the local CLI gets it too, a third out-of-band result
+(`cmdarg`, so the device verbs can answer `?arg`) — and the one change with
+teeth, hoisting the hit-test in `display()` above the `dpyactive` gate. That
+last one is the whole reason the feature works headless; reverting it leaves
+the entire suite green except `pen_click_needs_no_audience`, which is why
+that test exists.
+
+**`w pc` now clears the in-out transfer too** (`ioc=1`, `ioh=ios=ihs=0`),
+found while writing the pen program and guarded by
+`w_pc_clears_the_in_out_transfer`. It already cleared
+`cyc`/`df1`/`df2`/`bc`/`hsc` to put the machine at a fetch boundary; the
+in-out transfer is part of that boundary and was being left behind. `ioc`
+is computed at TP2 but `IR` is not loaded until TP5, so it is only ever
+recomputed by an IOT following an IOT and is otherwise sticky — `sc()`
+sets it for START, and nothing set it for `w pc`. On a machine that had
+never been started, the first in-out-wait IOT got no device pulse, raised
+the halt anyway, and waited forever. It looked like `dpy` was broken. It
+was not: START was always fine, and only `w pc` + `go` was affected.
 
 **The override is two-way at the panel** (added after Oscar tried it, and
 specified in §5 of `DEBUG_PROTOCOL_SPEC.md`): while it holds TW or SS the
@@ -49,9 +79,28 @@ Four things came out differently from the plan below, all noted in
 4. **`panel off` refuses but does not mirror** into the panel segment, per §4
    below rather than the v1 spec's MUST.
 
-Still open, and deliberately not decided unilaterally: `-l` (bind loopback
-only) exists and defaults to **off**, so remote panels and frontends keep
-working. §9 argues it should default on.
+**`dial()` now connects with a bounded wait** (`common.c`, 2 s, then a
+blocking fd as before). A plain `connect()` to a host that drops SYNs takes
+the full TCP timeout, over two minutes — and `dpy <host> <port>` dials from
+the command language, on the emulator thread, so one `dpy` at an
+unreachable address froze the machine and every port it serves. Oscar hit
+this and reported it as the listener dying, which is exactly what it looks
+like from outside: the accept thread is still accepting (raising the
+backlog from 1 to 8 made that part better), but nothing services what it
+accepts. Shared with `pdp6`/`pdp10`/`tx0`/`netmem_cache`/`tapevis`, which
+only dial at startup and are helped by the same bound; all of them build
+and were checked.
+
+**Settled: the filenames are confined, not the port.** §9 argued `-l` should
+default on. It should not — attaching `pdp_periph` from the local network is
+exactly what the port is for, so binding loopback would have closed the hole
+by breaking the feature. What actually needed closing was the file access:
+`reader`, `punch` and `load` open, create and truncate whatever they are
+handed, and `punch` is `O_CREAT|O_WRONLY|O_TRUNC`, so one line from any peer
+truncates any file the emulator can write. Names arriving over 1040 are now
+relative-only, `..`-free, and resolved under the tape directory (`-D <dir>`,
+default the working directory); names typed at the local CLI are untouched.
+Spec §5, and `tape_names_are_confined`. `-l` stays as it was, opt-in.
 
 ---
 

@@ -13,6 +13,7 @@ must be run against the emulator by hand.
 import argparse
 import socket
 import sys
+import threading
 import time
 
 # countdown demo, as in the pdp1-ai-debug skill.  entry 0o4.
@@ -37,6 +38,35 @@ SUB = {
     0o25: 0o600026,   # jmp 26
     0o26: 0o600000,   # jmp .  (patched by the dap to jmp 21)
 }
+
+
+# A light pen program, for `pen click'.  Plots one point over and over and
+# counts the times the pen saw it (PF3), which is all a picking program
+# ever does.  entry 0o100, hits at 0o133.
+#
+# dpy with the in-out wait, not dpy-i, for two reasons: the Handbook only
+# promises the pen's coordinates in AC/IO if the dpy was done with the
+# wait, and it paces the loop to the display for free.  A dpy only reaches
+# the screen 35us later, and a plot loop with nothing else to do keeps
+# resetting that timer, so the no-wait version needs a delay loop or it
+# never plots at all.
+PEN = {
+    0o100: 0o200130,   # loop, lac x
+    0o101: 0o220131,   #       lio y
+    0o102: 0o730007,   #       dpy         plot, and wait for it
+    0o103: 0o640003,   #       szf 3       did the pen see the point?
+    0o104: 0o600106,   #       jmp hit
+    0o105: 0o600100,   #       jmp loop
+    0o106: 0o760003,   # hit,  clf 3
+    0o107: 0o440133,   #       idx hits
+    0o110: 0o600100,   #       jmp loop
+    0o130: 0o000000,   # x     AC=0 lands on screen x=512
+    0o131: 0o625400,   # y     IO=0o1453<<8 lands on screen y=300
+    0o133: 0o000000,   # hits
+}
+PEN_ENTRY = 0o100
+PEN_HITS = 0o133
+PEN_X, PEN_Y = 512, 300     # where the program above plots, in screen units
 
 
 class Fail(Exception):
@@ -638,6 +668,249 @@ def t_switch_ss_reaches_the_program(c):
                            % (sw, k["ac"], want))
     finally:
         c.must("panel off")
+
+
+@test
+def t_tape_names_are_confined(c):
+    """filenames off the network stay under the tape directory
+
+    reader, punch and load open, create and truncate whatever they are
+    given, and the port has to stay reachable from the local network so
+    pdp_periph and the frontends can attach.  So the names are confined
+    rather than the bind address: `punch /etc/anything' is the whole
+    exploit otherwise, and it needs no PDP-1 knowledge at all.  Names
+    typed at the local CLI are not confined -- that is the operator at
+    the console, who has a shell already.
+    """
+    # the long forms: `r <file>' is the reader but `r <reg>' is the register
+    # read, and only the server can tell those apart
+    for bad in ("punch /etc/passwd",       # absolute
+                "reader /etc/passwd",
+                "load /etc/passwd",
+                "p ../escape.rim",         # traversal, and the short form
+                "reader ../../etc/passwd",
+                "reader tapes/../../escape"):   # traversal in the middle
+        payload = c.mustfail(bad, "?file")
+        if "outside the tape" not in payload:
+            raise Fail("%r was refused, but as %r -- it reached the open()"
+                       % (bad, payload))
+    # A legal name must not be refused for its shape.  Whether it then
+    # opens is the server's own business -- this one is missing, and a
+    # server with no tapes at all may not even look -- but the answer must
+    # not be that it escaped the directory.
+    ok, payload, _ = c.cmd("reader no_such_tape.rim")
+    if not ok and "outside the tape" in payload:
+        raise Fail("a plain relative name was refused as a path escape: %r"
+                   % payload)
+
+
+@test
+def t_w_pc_clears_the_in_out_transfer(c):
+    """w pc must leave the machine able to start an in-out transfer
+
+    Setting PC puts the machine at a fetch boundary, and the in-out
+    transfer is part of that.  `ioc' is the device command enable, and it
+    is only recomputed at TP2 of an IOT that follows another IOT -- so a
+    machine that has never been started still has ioc=0.  The first IOT
+    then gets no device pulse, raises the in-out halt anyway, and waits
+    forever for a completion nobody ever asked for.  `dpy' is the easiest
+    way to fall into it, which made it look for a while like dpy itself
+    was broken; it is not, and START was always fine.
+    """
+    c.cmd("stop")
+    c.must("ub *")
+    c.must("d 100 730007 760400")        # dpy (in-out wait), hlt
+    c.must("w pc 100")
+    k = c.kv("run 20")
+    if k["stop"] != "halt":
+        raise Fail("stop=%s at pc=%s, want halt: the machine is stuck in an "
+                   "in-out wait it can never leave" % (k["stop"], k["pc"]))
+
+
+# --- light pen ---------------------------------------------------------
+
+class Display:
+    """A display for the machine, draining its socket so nothing blocks."""
+
+    def __init__(self, sock):
+        self.s = sock
+        self.stop = False
+        self.t = threading.Thread(target=self.drain, daemon=True)
+        self.t.start()
+
+    def drain(self):
+        self.s.settimeout(0.2)
+        while not self.stop:
+            try:
+                if not self.s.recv(65536):
+                    return
+            except (socket.timeout, TimeoutError):
+                pass
+            except OSError:
+                return
+
+    def close(self):
+        self.stop = True
+        try:
+            self.s.close()
+        except OSError:
+            pass
+
+
+def display(c):
+    """Give the machine a display, by having it dial one we hold open.
+
+    Not by connecting to 3400: that is a fixed port, so on a host that is
+    also running the emulator a server with no display of its own would
+    borrow somebody else's screen and these tests would then report on the
+    wrong machine.  `dpy <host> <port>' makes the server itself the one
+    that connects, which settles both questions at once -- it has a
+    display, and this is the machine driving it.
+    """
+    lsn = socket.socket()
+    try:
+        lsn.bind(("127.0.0.1", 0))
+        lsn.listen(1)
+        lsn.settimeout(5)
+        ok, payload, _ = c.cmd("dpy 127.0.0.1 %d" % lsn.getsockname()[1])
+        if not ok:
+            raise Skip("this server has no display: %s" % payload)
+        try:
+            sock, _ = lsn.accept()
+        except (socket.timeout, TimeoutError):
+            raise Skip("this server has no display to connect with")
+    finally:
+        lsn.close()
+    return Display(sock)
+
+
+def nodisplay(c):
+    """The opposite, for the hoist guard: prove there is a display for this
+    server to drive, then make sure nothing is connected to it."""
+    display(c).close()
+    time.sleep(0.4)             # let the server notice the hangup
+
+
+def penhits(c):
+    """Run the pen program, click on the point it plots, count PF3."""
+    def hits():
+        _, data = c.must("e %o 1" % PEN_HITS)
+        return int(data[0].split()[1], 8)
+
+    c.cmd("stop")
+    c.must("ub *")
+    c.must("uwp *")
+    c.load(PEN)
+    c.must("pen 5")
+    c.must("w pc %o" % PEN_ENTRY)
+    c.must("go")
+    try:
+        # a click from an earlier test may still be down on this very point,
+        # so let it lapse and only then start counting.  poke, not d: the
+        # machine is running.
+        time.sleep(0.4)
+        c.must("poke %o 0" % PEN_HITS)
+        time.sleep(0.2)
+        if hits() != 0:
+            raise Fail("the program saw the pen before it was ever put down")
+
+        c.must("pen click %d %d 200" % (PEN_X, PEN_Y))
+        time.sleep(0.15)
+        during = hits()
+        if during == 0:
+            raise Fail("no PF3 hits while the pen was down on the plotted "
+                       "point (%d,%d)" % (PEN_X, PEN_Y))
+
+        time.sleep(0.25)        # well past the 200ms click
+        settled = hits()
+        time.sleep(0.25)
+        if hits() != settled:
+            raise Fail("the pen never came up: still seeing hits %dms after "
+                       "a 200ms click" % 250)
+
+        # a click somewhere else is not seen at all
+        c.must("pen click 100 100 200")
+        time.sleep(0.3)
+        if hits() != settled:
+            raise Fail("a click at 100,100 was seen by a program plotting "
+                       "at %d,%d" % (PEN_X, PEN_Y))
+    finally:
+        c.cmd("stop")
+
+
+@test
+def t_pen_click(c):
+    """pen click echoes the point and the duration it was asked for"""
+    p, _ = c.must("pen click 512 300")
+    if p != "pen click x=512 y=300 ms=100":
+        raise Fail("pen click 512 300 -> %r, want the default ms=100" % p)
+    p, _ = c.must("pen click 512 300 250")
+    if p != "pen click x=512 y=300 ms=250":
+        raise Fail("pen click 512 300 250 -> %r" % p)
+
+
+@test
+def t_pen_click_args(c):
+    """pen click is strict about its arguments; pen <n> stays lenient"""
+    for bad in ("pen click 1024 300",         # x out of range
+                "pen click 512 -1",           # negative y
+                "pen click 512 300 0",        # ms too small
+                "pen click 512 300 20000",    # ms too large
+                "pen click 512",              # missing y
+                "pen click 512 300 100 7"):   # unknown trailing argument
+        c.mustfail(bad, "?arg")
+    # the radius is one of the lenient device verbs and must stay that way
+    p, _ = c.must("pen 99")
+    if p != "pen 16":
+        raise Fail("pen 99 -> %r, want it clamped to pen 16, not an error" % p)
+
+
+@test
+def t_pen_click_state_and_claim(c):
+    """pen click is input: never refused on machine state, but it is a write"""
+    c.cmd("stop")
+    c.must("ub *")
+    c.load(PEN)
+    c.must("w pc %o" % PEN_ENTRY)
+    c.must("pen click 512 300")           # halted
+    c.must("go")
+    c.must("pen click 512 300")           # and running
+    c.cmd("stop")
+
+    other = Client(c.host, c.port)
+    other.host, other.port = c.host, c.port
+    try:
+        c.must("claim")
+        other.mustfail("pen click 512 300", "?busy")
+        c.must("release")
+        other.must("pen click 512 300")
+    finally:
+        other.close()
+
+
+@test
+def t_pen_click_releases(c):
+    """the pen comes back up on its own, and only points under it are seen"""
+    dpy = display(c)
+    try:
+        penhits(c)
+    finally:
+        dpy.close()
+
+
+@test
+def t_pen_click_needs_no_audience(c):
+    """the pen sees the beam with nothing connected to the display port
+
+    The regression guard for the hit-test hoist (spec §8): display() used
+    to hit-test below the dpyactive gate, so the pen only worked while
+    something was watching.  Streaming pen commands to 3400 hid that --
+    it is itself a display connection.  Over 1040 there is no such side
+    effect, and the click would reply + and never fire a flag.  Without
+    the hoist this is the only pen test that fails.
+    """
+    nodisplay(c)
+    penhits(c)
 
 
 def panelseg(c):
