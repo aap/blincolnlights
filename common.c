@@ -17,6 +17,7 @@
 #include <netdb.h>
 
 #include <poll.h>
+#include <errno.h>
 
 #include "common.h"
 
@@ -60,6 +61,11 @@ readn(int fd, void *data, int n)
 	return 0;
 }
 
+/* bind to 127.0.0.1 instead of every interface.  Off by default so remote
+ * panels and frontends keep working; DEBUG_PROTOCOL_SPEC §9 argues it should
+ * be the other way round on a machine that ships to hundreds of users. */
+int netlocalonly;
+
 int
 socketlisten(int port)
 {
@@ -78,7 +84,7 @@ socketlisten(int port)
 
 	memset(&server, 0, sizeof(server));
 	server.sin_family = AF_INET;
-	server.sin_addr.s_addr = INADDR_ANY;
+	server.sin_addr.s_addr = htonl(netlocalonly ? INADDR_LOOPBACK : INADDR_ANY);
 	server.sin_port = htons(port);
 	if(bind(fd, (struct sockaddr*)&server, sizeof(server)) < 0) {
 		close(fd);
@@ -91,6 +97,48 @@ socketlisten(int port)
 	 * and is retrying looks like */
 	listen(fd, 8);
 	return fd;
+}
+
+/* Connect with a bounded wait, and hand back a blocking socket.
+ *
+ * A plain connect() to a host that drops SYNs takes the full TCP timeout,
+ * over two minutes.  pdp1 dials from its command language, on the emulator
+ * thread, so a single `dpy <unreachable>' from any peer froze the machine
+ * and every port it serves for that long -- it looked like the listener
+ * had died.  Everything anyone dials here is on the same machine or the
+ * same LAN, so a couple of seconds is already generous. */
+enum { DIALMS = 2000 };
+
+static int
+connectto(int fd, const struct sockaddr *addr, socklen_t addrlen)
+{
+	struct pollfd pfd;
+	int fl, err;
+	socklen_t errlen;
+
+	fl = fcntl(fd, F_GETFL, 0);
+	if(fl < 0 || fcntl(fd, F_SETFL, fl|O_NONBLOCK) < 0)
+		return -1;
+	if(connect(fd, addr, addrlen) < 0) {
+		if(errno != EINPROGRESS)
+			return -1;
+		pfd.fd = fd;
+		pfd.events = POLLOUT;
+		if(poll(&pfd, 1, DIALMS) != 1) {
+			errno = ETIMEDOUT;
+			return -1;
+		}
+		err = 0;
+		errlen = sizeof(err);
+		if(getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0)
+			return -1;
+		if(err) {
+			errno = err;
+			return -1;
+		}
+	}
+	/* every caller expects a blocking fd back */
+	return fcntl(fd, F_SETFL, fl);
 }
 
 int
@@ -114,7 +162,7 @@ dial(const char *host, int port)
 		sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if(sockfd < 0)
 			continue;
-		if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) >= 0)
+		if(connectto(sockfd, rp->ai_addr, rp->ai_addrlen) >= 0)
 			goto win;
 		close(sockfd);
 	}

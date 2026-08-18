@@ -1,6 +1,7 @@
 #include "common.h"
 #include "panel_b18.h"
 #include "pdp1.h"
+#include "dbg.h"
 
 void
 updateswitches(PDP1 *pdp, Panel *panel)
@@ -35,6 +36,12 @@ updateswitches(PDP1 *pdp, Panel *panel)
 	pdp->examine_sw = !!(sw1 & KEY_EXAM);
 	pdp->deposit_sw = !!(sw1 & KEY_DEP);
 	pdp->readin_sw = !!(sw1 & KEY_READIN);
+
+	/* the debug service sits on top of the panel, at the decoded level,
+	 * so it needs no bit layout and both panels get it from one place.
+	 * No physical unlock here: this panel has no key going spare, so the
+	 * way out of an override is 'panel off force' on port 1040. */
+	dbgoverride(pdp);
 }
 
 void
@@ -58,7 +65,9 @@ updatelights(PDP1 *pdp, Panel *panel)
 	switch(panel->sel1) {
 	case 0: panel->lights0 = AC; break;
 	case 1: panel->lights0 = MA | IR<<12; break;
-	case 2: panel->lights0 = pdp->pf<<6 | pdp->ss; break;
+	/* all six sense switch lamps lit means the debug service is holding
+	 * TW or SS: the switches are not the ones the program reads */
+	case 2: panel->lights0 = pdp->pf<<6 | (dbgswoverride() ? 077 : pdp->ss); break;
 	case 3: panel->lights0 = pdp->ta; break;
 	}
 	switch(panel->sel2) {

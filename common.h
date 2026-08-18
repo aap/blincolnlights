@@ -19,6 +19,7 @@ typedef int8_t i8;
 void panic(const char *fmt, ...);
 int hasinput(int fd);
 int readn(int fd, void *data, int n);
+extern int netlocalonly;
 int socketlisten(int port);
 int dial(const char *host, int port);
 int serve1(int port);

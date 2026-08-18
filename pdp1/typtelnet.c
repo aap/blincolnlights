@@ -5,6 +5,7 @@
 
 #include <unistd.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <pthread.h>
 
 enum {
@@ -90,27 +91,64 @@ static int ascii2fio[] = {
 static int color;
 static int ucase;
 
-static void
-putfio(int c, int fd)
+/* the typewriter is one device with N onlookers, so the ribbon colour and
+ * case shift are shared: every client sees the same character stream */
+enum { MAXTYP = 4 };
+static int clients[MAXTYP];
+static int nclients;
+
+/* render one FIO-DEC character, updating the shared colour/case state */
+static int
+fio2out(int c, char *out)
 {
 	const char *s;
-	int col;
+	int col, n;
 
+	n = 0;
 	col = !!(c&0100);
 	c = ucase*0100 + (c&077);
 
 	if(color != col) {
 		color = col;
-		if(color == 0)
-			write(fd, "\e[39;49m", 8);
-		else
-			write(fd, "\e[31m", 5);
+		if(color == 0) {
+			memcpy(out+n, "\e[39;49m", 8);
+			n += 8;
+		} else {
+			memcpy(out+n, "\e[31m", 5);
+			n += 5;
+		}
 	}
 	s = fio2uni[c];
 // TODO: synchronize ucase?
-	if(s == Lcs) { ucase = 0; return; }
-	if(s == Ucs) { ucase = 1; return; }
-	if(s != XXX) write(fd, s, strlen(s));
+	if(s == Lcs) { ucase = 0; return n; }
+	if(s == Ucs) { ucase = 1; return n; }
+	if(s != XXX) {
+		int l = strlen(s);
+		memcpy(out+n, s, l);
+		n += l;
+	}
+	return n;
+}
+
+static void
+putfio(int c, int fd)
+{
+	char out[32];
+	int n = fio2out(c, out);
+	if(n) write(fd, out, n);
+}
+
+static void
+putfio_all(int c)
+{
+	char out[32];
+	int i, n;
+
+	n = fio2out(c, out);
+	if(n == 0)
+		return;
+	for(i = 0; i < nclients; i++)
+		write(clients[i], out, n);
 }
 
 static void
@@ -129,10 +167,13 @@ getfio(int c, int fd, int localfd)
 	s[n++] = c & 077;
 	write(fd, s, n);
 
-	// local echo
+	// local echo, to everyone watching: it is one typewriter
 	int i;
 	for(i = 0; i < n; i++)
-		putfio(color<<6 | s[i], localfd);
+		if(localfd < 0)
+			putfio_all(color<<6 | s[i]);
+		else
+			putfio(color<<6 | s[i], localfd);
 }
 
 
@@ -186,50 +227,6 @@ readiac(int fd)
 }
 
 static void
-readwrite(int telfd, int typfd)
-{
-	int n;
-	struct pollfd pfd[2];
-	char c;
-
-	pfd[0].fd = typfd;
-	pfd[0].events = POLLIN;
-	pfd[1].fd = telfd;
-	pfd[1].events = POLLIN;
-	while(pfd[0].fd != -1) {
-		n = poll(pfd, 2, -1);
-		if(n < 0){
-			perror("error poll");
-			return;
-		}
-		if(n == 0)
-			return;
-		/* take from pdp, send to telnet */
-		if(pfd[0].revents & POLLIN) {
-			if(n = read(typfd, &c, 1), n <= 0)
-				return;
-			else {
-				c &= 0177;
-				putfio(c, telfd);
-			}
-		}
-		/* receive over telnet, send to pdp */
-		if(pfd[1].revents & POLLIN) {
-			if(n = read(telfd, &c, 1), n <= 0)
-				return;
-			else {
-				if((c&0377) == IAC)
-					c = readiac(telfd);
-				if(c < 0)
-					continue;
-				c &= 0177;	// needed?
-				getascii(c, typfd, telfd);
-			}
-		}
-	}
-}
-
-static void
 cmd(int fd, int a, int b)
 {
 	char ca = a;
@@ -240,28 +237,99 @@ cmd(int fd, int a, int b)
 	if(b >= 0) write(fd, &cb, 1);
 }
 
+static void
+dropclient(int i)
+{
+	close(clients[i]);
+	clients[i] = clients[--nclients];
+}
+
 static int typport;
 static int typfd;
 
+/* One poll loop for the listening socket, the emulator's end of the
+ * typewriter, and every telnet client: output fans out to all of them,
+ * input from any of them goes to the machine.  This is what makes
+ * pdp1_mux unnecessary for port 1041. */
 void*
 telthread(void *arg)
 {
+	struct pollfd pfd[MAXTYP+2];
+	int lisfd, telfd, i, n, np;
+	char c;
+
+	lisfd = socketlisten(typport);
+	if(lisfd < 0)
+		return nil;
+	listen(lisfd, MAXTYP);
+
 	for(;;) {
-		int telfd = serve1(typport);
-		cmd(telfd, WILL, XMITBIN);
-		cmd(telfd, DO, XMITBIN);
-		cmd(telfd, WILL, ECHO_);
-		cmd(telfd, DO, SUPRGA);
-		cmd(telfd, WILL, SUPRGA);
-		cmd(telfd, WONT, LINEEDIT);
-		cmd(telfd, DONT, LINEEDIT);
-//		write(telfd, "[2J[H", 7);
-		if(color) {
-			color = 0;
-			putfio(0160, telfd);
+		pfd[0].fd = typfd;
+		pfd[0].events = POLLIN;
+		pfd[0].revents = 0;
+		pfd[1].fd = lisfd;
+		pfd[1].events = POLLIN;
+		pfd[1].revents = 0;
+		for(i = 0; i < nclients; i++) {
+			pfd[i+2].fd = clients[i];
+			pfd[i+2].events = POLLIN;
+			pfd[i+2].revents = 0;
 		}
-		readwrite(telfd, typfd);
-		close(telfd);
+		np = nclients+2;
+
+		if(poll(pfd, np, -1) < 0) {
+			perror("error poll");
+			return nil;
+		}
+
+		/* take from pdp, send to every telnet client */
+		if(pfd[0].revents & POLLIN) {
+			if(n = read(typfd, &c, 1), n <= 0)
+				return nil;
+			c &= 0177;
+			putfio_all(c);
+		}
+
+		/* a new onlooker */
+		if(pfd[1].revents & POLLIN) {
+			telfd = accept(lisfd, nil, nil);
+			if(telfd >= 0 && nclients >= MAXTYP) {
+				/* say no rather than leaving them hanging */
+				write(telfd, "typewriter is full\r\n", 20);
+				close(telfd);
+			} else if(telfd >= 0) {
+				cmd(telfd, WILL, XMITBIN);
+				cmd(telfd, DO, XMITBIN);
+				cmd(telfd, WILL, ECHO_);
+				cmd(telfd, DO, SUPRGA);
+				cmd(telfd, WILL, SUPRGA);
+				cmd(telfd, WONT, LINEEDIT);
+				cmd(telfd, DONT, LINEEDIT);
+				/* the colour state is shared, so tell the
+				 * newcomer what it currently is */
+				if(color)
+					write(telfd, "\e[31m", 5);
+				else
+					write(telfd, "\e[39;49m", 8);
+				clients[nclients++] = telfd;
+			}
+		}
+
+		/* receive over telnet, send to pdp */
+		for(i = nclients-1; i >= 0; i--) {
+			if(!(pfd[i+2].revents & (POLLIN|POLLHUP|POLLERR)))
+				continue;
+			if(n = read(clients[i], &c, 1), n <= 0) {
+				dropclient(i);
+				continue;
+			}
+			if((c&0377) == IAC)
+				c = readiac(clients[i]);
+			if(c < 0)
+				continue;
+			c &= 0177;	// needed?
+			getascii(c, typfd, -1);
+		}
 	}
 }
 
